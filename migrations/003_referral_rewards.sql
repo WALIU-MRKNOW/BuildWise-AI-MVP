@@ -222,12 +222,11 @@ begin
          where user_id = v_row.user_id
            and usage_date = v_row.usage_date;
     elsif v_row.source = 'referral_credit' then
-        insert into public.referral_credit_balances(user_id, available_credits, lifetime_earned, lifetime_spent)
-        values (v_row.user_id, 1, 1, 0)
-        on conflict (user_id) do update
-           set available_credits = public.referral_credit_balances.available_credits + 1,
-               lifetime_spent = greatest(public.referral_credit_balances.lifetime_spent - 1, 0),
-               updated_at = now();
+        update public.referral_credit_balances
+           set available_credits = available_credits + 1,
+               lifetime_spent = greatest(lifetime_spent - 1, 0),
+               updated_at = now()
+         where user_id = v_row.user_id;
     end if;
 
     update public.usage_reservations
@@ -241,6 +240,10 @@ $$;
 revoke all on table public.referral_rewards from anon, authenticated;
 revoke all on table public.referral_credit_balances from anon, authenticated;
 revoke all on table public.usage_reservations from anon, authenticated;
+grant select, insert, update, delete on table public.referral_rewards to service_role;
+grant select, insert, update, delete on table public.referral_credit_balances to service_role;
+grant select, insert, update, delete on table public.usage_reservations to service_role;
+
 revoke all on function public.consume_usage_with_referral_credit(uuid, date, integer) from public, anon, authenticated;
 revoke all on function public.finalize_usage_and_reward_referrer(uuid, integer) from public, anon, authenticated;
 revoke all on function public.refund_usage_reservation(uuid) from public, anon, authenticated;
