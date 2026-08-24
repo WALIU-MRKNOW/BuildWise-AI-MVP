@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from fastapi import FastAPI
 
-from bot.admin import create_admin_router
+from bot.admin import create_admin_router, log_admin_configuration
 from bot.config import Settings
 
 
@@ -38,5 +38,6 @@ def create_api(health: RuntimeHealth, settings: Settings) -> FastAPI:
             "service": "buildwise-ai",
         }
 
+    log_admin_configuration(settings)
     api.include_router(create_admin_router(settings))
     return api
