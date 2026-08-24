@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -102,14 +103,38 @@ class AdminService:
         thirty_days = (now - timedelta(days=30)).isoformat()
         today = now.date().isoformat()
 
-        users = await self._rows(
+        referral_users = await self._rows(
             "/rest/v1/users",
             params={
-                "select": "id,telegram_id,username,display_name,created_at,updated_at",
+                "select": "id,telegram_id,username,display_name,referral_code,referred_by,created_at,updated_at",
                 "order": "created_at.desc",
-                "limit": "30",
+                "limit": "10000",
             },
         )
+        referral_counts = Counter(
+            str(row["referred_by"])
+            for row in referral_users
+            if row.get("referred_by")
+        )
+        user_by_id = {str(row["id"]): row for row in referral_users}
+        top_referrers = []
+        for user_id, count in referral_counts.most_common(10):
+            user = user_by_id.get(user_id, {})
+            top_referrers.append(
+                {
+                    "user_id": user_id,
+                    "display_name": user.get("display_name") or "Student",
+                    "username": user.get("username"),
+                    "telegram_id": user.get("telegram_id"),
+                    "referral_code": user.get("referral_code"),
+                    "referral_count": count,
+                }
+            )
+
+        users = [
+            {**row, "referral_count": referral_counts.get(str(row["id"]), 0)}
+            for row in referral_users[:30]
+        ]
         recent_activity = await self._rows(
             "/rest/v1/conversations",
             params={
@@ -118,19 +143,25 @@ class AdminService:
                 "limit": "30",
             },
         )
-        recent_user_ids = sorted({str(row["user_id"]) for row in recent_activity if row.get("user_id")})
-        user_lookup: dict[str, dict[str, Any]] = {str(row["id"]): row for row in users}
+        recent_user_ids = sorted(
+            {str(row["user_id"]) for row in recent_activity if row.get("user_id")}
+        )
+        user_lookup: dict[str, dict[str, Any]] = {
+            str(row["id"]): row for row in referral_users
+        }
         if recent_user_ids:
-            ids = ",".join(recent_user_ids)
-            activity_users = await self._rows(
-                "/rest/v1/users",
-                params={
-                    "id": f"in.({ids})",
-                    "select": "id,telegram_id,username,display_name",
-                    "limit": "100",
-                },
-            )
-            user_lookup.update({str(row["id"]): row for row in activity_users})
+            missing_ids = [user_id for user_id in recent_user_ids if user_id not in user_lookup]
+            if missing_ids:
+                ids = ",".join(missing_ids)
+                activity_users = await self._rows(
+                    "/rest/v1/users",
+                    params={
+                        "id": f"in.({ids})",
+                        "select": "id,telegram_id,username,display_name",
+                        "limit": "100",
+                    },
+                )
+                user_lookup.update({str(row["id"]): row for row in activity_users})
 
         mode_rows = await self._rows(
             "/rest/v1/conversations",
@@ -147,7 +178,11 @@ class AdminService:
 
         usage_rows = await self._rows(
             "/rest/v1/usage_daily",
-            params={"usage_date": f"eq.{today}", "select": "request_count", "limit": "10000"},
+            params={
+                "usage_date": f"eq.{today}",
+                "select": "request_count",
+                "limit": "10000",
+            },
         )
         tickets = await self._rows(
             "/rest/v1/support_tickets",
@@ -159,32 +194,46 @@ class AdminService:
         )
         active_rows = await self._rows(
             "/rest/v1/conversations",
-            params={"created_at": f"gte.{seven_days}", "select": "user_id", "limit": "10000"},
+            params={
+                "created_at": f"gte.{seven_days}",
+                "select": "user_id",
+                "limit": "10000",
+            },
         )
 
         activity = []
         for row in recent_activity:
             user = user_lookup.get(str(row.get("user_id")), {})
-            activity.append({
-                **row,
-                "display_name": user.get("display_name") or "Student",
-                "username": user.get("username"),
-                "telegram_id": user.get("telegram_id"),
-                "message": str(row.get("message") or "")[:240],
-            })
+            activity.append(
+                {
+                    **row,
+                    "display_name": user.get("display_name") or "Student",
+                    "username": user.get("username"),
+                    "telegram_id": user.get("telegram_id"),
+                    "message": str(row.get("message") or "")[:240],
+                }
+            )
 
         return {
             "summary": {
-                "users": await self._count("users"),
-                "active_users_7d": len({str(row.get("user_id")) for row in active_rows if row.get("user_id")}),
-                "requests_today": sum(int(row.get("request_count") or 0) for row in usage_rows),
+                "users": len(referral_users),
+                "active_users_7d": len(
+                    {str(row.get("user_id")) for row in active_rows if row.get("user_id")}
+                ),
+                "requests_today": sum(
+                    int(row.get("request_count") or 0) for row in usage_rows
+                ),
                 "conversations_30d": len(mode_rows),
-                "open_tickets": sum(1 for row in tickets if row.get("status") != "resolved"),
+                "open_tickets": sum(
+                    1 for row in tickets if row.get("status") != "resolved"
+                ),
+                "referrals": sum(referral_counts.values()),
             },
             "users": users,
             "recent_activity": activity,
             "mode_usage": mode_usage,
             "tickets": tickets,
+            "top_referrers": top_referrers,
             "generated_at": now.isoformat(),
         }
 
