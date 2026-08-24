@@ -219,6 +219,7 @@ integer from 0 to 3. Explanations must be short. Do not include Markdown fences.
                 "I could not reach the AI service. Please try again in a moment."
             )
         if isinstance(exc, BadRequestError):
+            logger.error("OpenAI bad request: %s", str(exc))
             return AIServiceError(
                 "I could not process that input. Try a clearer image, supported PDF, or shorter text."
             )
