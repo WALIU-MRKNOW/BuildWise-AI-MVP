@@ -115,6 +115,9 @@ class UsageStatus:
     allowed: bool
     used: int
     limit: int
+    reservation_id: str | None = None
+    source: str | None = None
+    bonus_credits_remaining: int = 0
 
     @property
     def remaining(self) -> int:
