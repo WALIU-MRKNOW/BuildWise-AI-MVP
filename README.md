@@ -215,3 +215,4 @@ Before production, run the migration in a test Supabase project and perform the 
 - **File rejected:** send a supported image or PDF under the configured size.
 
 **Less Stress. More Solutions. BuildWise. 🚀**
+Deployment trigger: 2026-08-24
