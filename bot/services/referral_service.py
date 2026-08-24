@@ -27,6 +27,15 @@ class ReferralRegistration:
     was_new: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ReferralRewardSummary:
+    successful_referrals: int
+    qualified_referrals: int
+    available_credits: int
+    lifetime_earned: int
+    lifetime_spent: int
+
+
 def normalize_referral_code(value: str | None) -> str | None:
     if value is None:
         return None
@@ -63,6 +72,27 @@ class ReferralService:
             )
         return response.json() if response.content else None
 
+    async def _get(
+        self, path: str, params: dict[str, str], *, prefer: str | None = None
+    ) -> httpx.Response:
+        headers = _auth_headers(self._key)
+        if prefer:
+            headers["Prefer"] = prefer
+        async with httpx.AsyncClient(
+            base_url=self._base_url,
+            headers=headers,
+            timeout=httpx.Timeout(30.0, connect=15.0),
+        ) as client:
+            try:
+                response = await client.get(path, params=params)
+            except httpx.HTTPError as exc:
+                raise ReferralServiceError("Referral database request failed") from exc
+        if response.is_error:
+            raise ReferralServiceError(
+                f"Referral database request failed ({response.status_code})"
+            )
+        return response
+
     async def register_start(
         self,
         *,
@@ -92,29 +122,52 @@ class ReferralService:
         )
 
     async def referral_count(self, user_id: str) -> int:
-        async with httpx.AsyncClient(
-            base_url=self._base_url,
-            headers=_auth_headers(self._key),
-            timeout=httpx.Timeout(30.0, connect=15.0),
-        ) as client:
-            try:
-                response = await client.get(
-                    "/rest/v1/users",
-                    params={
-                        "referred_by": f"eq.{user_id}",
-                        "select": "id",
-                        "limit": "1",
-                    },
-                    headers={"Prefer": "count=exact"},
-                )
-            except httpx.HTTPError as exc:
-                raise ReferralServiceError("Referral count request failed") from exc
-        if response.is_error:
-            raise ReferralServiceError(
-                f"Referral count request failed ({response.status_code})"
-            )
+        response = await self._get(
+            "/rest/v1/users",
+            {
+                "referred_by": f"eq.{user_id}",
+                "select": "id",
+                "limit": "1",
+            },
+            prefer="count=exact",
+        )
         content_range = response.headers.get("content-range", "0-0/0")
         try:
             return int(content_range.rsplit("/", 1)[1])
         except (IndexError, ValueError):
             return 0
+
+    async def reward_summary(self, user_id: str) -> ReferralRewardSummary:
+        successful = await self.referral_count(user_id)
+        rewards_response = await self._get(
+            "/rest/v1/referral_rewards",
+            {
+                "referrer_user_id": f"eq.{user_id}",
+                "select": "id",
+                "limit": "1",
+            },
+            prefer="count=exact",
+        )
+        content_range = rewards_response.headers.get("content-range", "0-0/0")
+        try:
+            qualified = int(content_range.rsplit("/", 1)[1])
+        except (IndexError, ValueError):
+            qualified = 0
+
+        balance_response = await self._get(
+            "/rest/v1/referral_credit_balances",
+            {
+                "user_id": f"eq.{user_id}",
+                "select": "available_credits,lifetime_earned,lifetime_spent",
+                "limit": "1",
+            },
+        )
+        rows = balance_response.json()
+        row = rows[0] if isinstance(rows, list) and rows else {}
+        return ReferralRewardSummary(
+            successful_referrals=successful,
+            qualified_referrals=qualified,
+            available_credits=int(row.get("available_credits") or 0),
+            lifetime_earned=int(row.get("lifetime_earned") or 0),
+            lifetime_spent=int(row.get("lifetime_spent") or 0),
+        )

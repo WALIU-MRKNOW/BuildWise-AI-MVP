@@ -12,9 +12,12 @@ from bot.handlers.referral_handlers import ReferralHandlers
 from bot.handlers.support_handlers import SupportHandlers
 from bot.router import RequestRouter
 from bot.services.admin_service import AdminService
-from bot.services.openai_service import OpenAIService
 from bot.services.referral_service import ReferralService
 from bot.services.reminder_service import ReminderService
+from bot.services.reward_usage_service import (
+    RewardAwareOpenAIService,
+    RewardAwareSupabaseService,
+)
 from bot.services.supabase_service import SupabaseService
 
 
@@ -27,11 +30,11 @@ class BuildWiseComponents:
 
 
 def build_components(settings: Settings) -> BuildWiseComponents:
-    database = SupabaseService(settings)
+    database = RewardAwareSupabaseService(settings)
     reminders = ReminderService(database)
     handlers = BotHandlers(
         settings,
-        OpenAIService(settings),
+        RewardAwareOpenAIService(settings, database),  # type: ignore[arg-type]
         RequestRouter(),
         database,
         reminders,

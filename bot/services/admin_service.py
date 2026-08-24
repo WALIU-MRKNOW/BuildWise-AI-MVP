@@ -117,9 +117,29 @@ class AdminService:
             if row.get("referred_by")
         )
         user_by_id = {str(row["id"]): row for row in referral_users}
+
+        reward_rows = await self._rows(
+            "/rest/v1/referral_rewards",
+            params={
+                "select": "id,referrer_user_id,referred_user_id,credits_awarded,qualified_at,created_at",
+                "order": "created_at.desc",
+                "limit": "1000",
+            },
+        )
+        balance_rows = await self._rows(
+            "/rest/v1/referral_credit_balances",
+            params={
+                "select": "user_id,available_credits,lifetime_earned,lifetime_spent,updated_at",
+                "limit": "10000",
+            },
+        )
+        balance_by_user = {str(row["user_id"]): row for row in balance_rows}
+        qualified_counts = Counter(str(row["referrer_user_id"]) for row in reward_rows)
+
         top_referrers = []
         for user_id, count in referral_counts.most_common(10):
             user = user_by_id.get(user_id, {})
+            balance = balance_by_user.get(user_id, {})
             top_referrers.append(
                 {
                     "user_id": user_id,
@@ -128,13 +148,39 @@ class AdminService:
                     "telegram_id": user.get("telegram_id"),
                     "referral_code": user.get("referral_code"),
                     "referral_count": count,
+                    "qualified_referrals": qualified_counts.get(user_id, 0),
+                    "available_credits": int(balance.get("available_credits") or 0),
+                    "lifetime_earned": int(balance.get("lifetime_earned") or 0),
                 }
             )
 
-        users = [
-            {**row, "referral_count": referral_counts.get(str(row["id"]), 0)}
-            for row in referral_users[:30]
-        ]
+        users = []
+        for row in referral_users[:30]:
+            user_id = str(row["id"])
+            balance = balance_by_user.get(user_id, {})
+            users.append(
+                {
+                    **row,
+                    "referral_count": referral_counts.get(user_id, 0),
+                    "qualified_referrals": qualified_counts.get(user_id, 0),
+                    "available_credits": int(balance.get("available_credits") or 0),
+                }
+            )
+
+        recent_rewards = []
+        for row in reward_rows[:50]:
+            referrer = user_by_id.get(str(row.get("referrer_user_id")), {})
+            referred = user_by_id.get(str(row.get("referred_user_id")), {})
+            recent_rewards.append(
+                {
+                    **row,
+                    "referrer_name": referrer.get("display_name") or "Student",
+                    "referrer_username": referrer.get("username"),
+                    "referred_name": referred.get("display_name") or "Student",
+                    "referred_username": referred.get("username"),
+                }
+            )
+
         recent_activity = await self._rows(
             "/rest/v1/conversations",
             params={
@@ -143,25 +189,9 @@ class AdminService:
                 "limit": "30",
             },
         )
-        recent_user_ids = sorted(
-            {str(row["user_id"]) for row in recent_activity if row.get("user_id")}
-        )
         user_lookup: dict[str, dict[str, Any]] = {
             str(row["id"]): row for row in referral_users
         }
-        if recent_user_ids:
-            missing_ids = [user_id for user_id in recent_user_ids if user_id not in user_lookup]
-            if missing_ids:
-                ids = ",".join(missing_ids)
-                activity_users = await self._rows(
-                    "/rest/v1/users",
-                    params={
-                        "id": f"in.({ids})",
-                        "select": "id,telegram_id,username,display_name",
-                        "limit": "100",
-                    },
-                )
-                user_lookup.update({str(row["id"]): row for row in activity_users})
 
         mode_rows = await self._rows(
             "/rest/v1/conversations",
@@ -228,12 +258,20 @@ class AdminService:
                     1 for row in tickets if row.get("status") != "resolved"
                 ),
                 "referrals": sum(referral_counts.values()),
+                "qualified_referrals": len(reward_rows),
+                "reward_credits_issued": sum(
+                    int(row.get("credits_awarded") or 0) for row in reward_rows
+                ),
+                "reward_credits_available": sum(
+                    int(row.get("available_credits") or 0) for row in balance_rows
+                ),
             },
             "users": users,
             "recent_activity": activity,
             "mode_usage": mode_usage,
             "tickets": tickets,
             "top_referrers": top_referrers,
+            "recent_rewards": recent_rewards,
             "generated_at": now.isoformat(),
         }
 
