@@ -80,10 +80,11 @@ class OpenAIService:
         input_messages: list[dict[str, object]] = []
         for turn in history or []:
             if turn.role in {"user", "assistant"} and turn.content.strip():
+                content_type = "output_text" if turn.role == "assistant" else "input_text"
                 input_messages.append(
                     {
                         "role": turn.role,
-                        "content": [{"type": "input_text", "text": turn.content}],
+                        "content": [{"type": content_type, "text": turn.content}],
                     }
                 )
         input_messages.append({"role": "user", "content": content})
