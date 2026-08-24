@@ -28,7 +28,7 @@ async def run_async(settings: Settings) -> None:
     health = RuntimeHealth()
     server = uvicorn.Server(
         uvicorn.Config(
-            create_api(health),
+            create_api(health, settings),
             host=settings.host,
             port=settings.port,
             log_level=settings.log_level.lower(),

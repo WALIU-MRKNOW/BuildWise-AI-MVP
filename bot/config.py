@@ -36,6 +36,9 @@ class Settings(BaseSettings):
         )
     )
 
+    admin_username: str = Field(default="", validation_alias="ADMIN_USERNAME")
+    admin_password: SecretStr | None = Field(default=None, validation_alias="ADMIN_PASSWORD")
+
     openai_model: str = Field(default="gpt-5.6-terra", validation_alias="OPENAI_MODEL")
     openai_max_output_tokens: int = Field(
         default=1200,

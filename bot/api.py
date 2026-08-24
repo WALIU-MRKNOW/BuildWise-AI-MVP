@@ -1,4 +1,4 @@
-"""Small FastAPI surface used by Railway health checks."""
+"""FastAPI surface used by health checks and the private admin dashboard."""
 
 from __future__ import annotations
 
@@ -6,17 +6,20 @@ from dataclasses import dataclass
 
 from fastapi import FastAPI
 
+from bot.admin import create_admin_router
+from bot.config import Settings
+
 
 @dataclass(slots=True)
 class RuntimeHealth:
     ready: bool = False
 
 
-def create_api(health: RuntimeHealth) -> FastAPI:
+def create_api(health: RuntimeHealth, settings: Settings) -> FastAPI:
     api = FastAPI(
         title="BuildWise AI",
         description="Health service for the BuildWise Telegram MVP.",
-        version="1.0.0",
+        version="1.1.0",
         docs_url=None,
         redoc_url=None,
     )
@@ -35,4 +38,5 @@ def create_api(health: RuntimeHealth) -> FastAPI:
             "service": "buildwise-ai",
         }
 
+    api.include_router(create_admin_router(settings))
     return api
