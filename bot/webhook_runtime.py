@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from telegram import Update
 import uvicorn
 
-from bot.admin import create_admin_router
+from bot.admin import create_admin_router, log_admin_configuration
 from bot.api import RuntimeHealth
 from bot.app import BuildWiseComponents, build_components
 from bot.config import Settings, load_settings
@@ -119,6 +119,7 @@ def create_webhook_api(settings: Settings) -> FastAPI:
         await components.reminders.dispatch(context)  # type: ignore[arg-type]
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    log_admin_configuration(settings)
     api.include_router(create_admin_router(settings))
     return api
 
