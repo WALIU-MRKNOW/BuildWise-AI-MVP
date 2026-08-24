@@ -54,19 +54,22 @@ class ReferralHandlers:
             if not me.username:
                 raise ReferralServiceError("Bot username is unavailable")
             link = build_referral_link(me.username, registration.referral_code)
-            count = await self._service.referral_count(registration.user_id)
+            rewards = await self._service.reward_summary(registration.user_id)
         except (ReferralServiceError, ValueError):
             await message.reply_text("Invite links are temporarily unavailable. Please try again later.")
             return
         await message.reply_text(
             "👥 Invite friends to BuildWise\n\n"
             f"Your link:\n{link}\n\n"
-            f"Successful referrals: {count}\n\n"
-            "Referral tracking is active. Rewards are not enabled yet."
+            f"Successful referrals: {rewards.successful_referrals}\n"
+            f"Qualified referrals: {rewards.qualified_referrals}\n"
+            f"🎁 Bonus AI requests available: {rewards.available_credits}\n"
+            f"Lifetime bonus requests earned: {rewards.lifetime_earned}\n\n"
+            "Each referred friend earns you 10 bonus AI requests after their first successful AI request."
         )
 
     async def add_bot_command(self, application: Application) -> None:
         commands = list(await application.bot.get_my_commands())
         if not any(command.command == "invite" for command in commands):
-            commands.append(BotCommand("invite", "Get your referral link and count"))
+            commands.append(BotCommand("invite", "Get your referral link and rewards"))
             await application.bot.set_my_commands(commands)
