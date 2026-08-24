@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
@@ -14,6 +15,7 @@ from pydantic import BaseModel
 from bot.config import Settings
 from bot.services.admin_service import AdminService, AdminServiceError
 
+logger = logging.getLogger(__name__)
 security = HTTPBasic(auto_error=False)
 
 
@@ -21,20 +23,47 @@ class TicketStatusUpdate(BaseModel):
     status: str
 
 
+def admin_configuration_error(settings: Settings) -> str | None:
+    """Return a non-secret diagnostic when the admin dashboard cannot be enabled."""
+    username = settings.admin_username.strip()
+    password = (
+        settings.admin_password.get_secret_value().strip()
+        if settings.admin_password is not None
+        else ""
+    )
+    if not username:
+        return "ADMIN_USERNAME is blank"
+    if len(password) < 16:
+        return "ADMIN_PASSWORD must contain at least 16 characters"
+    return None
+
+
+def log_admin_configuration(settings: Settings) -> None:
+    """Log whether admin routes are usable without logging credential values."""
+    error = admin_configuration_error(settings)
+    if error:
+        logger.warning("BuildWise admin dashboard disabled: %s", error)
+    else:
+        logger.info("BuildWise admin dashboard enabled at /admin")
+
+
 def create_admin_router(settings: Settings) -> APIRouter:
     router = APIRouter()
     service = AdminService(settings)
 
     def configured_credentials() -> tuple[str, str]:
-        username = settings.admin_username.strip()
-        password = (
-            settings.admin_password.get_secret_value().strip()
-            if settings.admin_password is not None
-            else ""
+        error = admin_configuration_error(settings)
+        if error:
+            # The route exists; a configuration problem must not masquerade as
+            # FastAPI's normal route-not-found response.
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Admin dashboard is not configured: {error}",
+            )
+        return (
+            settings.admin_username.strip(),
+            settings.admin_password.get_secret_value().strip(),  # type: ignore[union-attr]
         )
-        if not username or len(password) < 16:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        return username, password
 
     def require_admin(
         credentials: HTTPBasicCredentials | None = Depends(security),
