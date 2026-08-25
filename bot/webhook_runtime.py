@@ -1,10 +1,11 @@
-"""Cloud Run runtime using Telegram webhooks and a protected reminder tick."""
+"""Cloud Run/Railway runtime using Telegram webhooks and a protected reminder tick."""
 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import hmac
 import logging
+import os
 from types import SimpleNamespace
 from typing import AsyncIterator
 
@@ -29,6 +30,19 @@ def _required_secret(value: object, name: str) -> str:
     return secret
 
 
+def _webhook_url(settings: Settings) -> str:
+    if settings.telegram_webhook_base_url:
+        base = settings.telegram_webhook_base_url
+    else:
+        railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip().strip("/")
+        if not railway_domain:
+            raise ValueError(
+                "TELEGRAM_WEBHOOK_BASE_URL or RAILWAY_PUBLIC_DOMAIN is required when RUNTIME_MODE=webhook"
+            )
+        base = f"https://{railway_domain}"
+    return f"{base}/telegram/webhook"
+
+
 def create_webhook_api(settings: Settings) -> FastAPI:
     webhook_secret = _required_secret(
         settings.telegram_webhook_secret, "TELEGRAM_WEBHOOK_SECRET"
@@ -36,6 +50,7 @@ def create_webhook_api(settings: Settings) -> FastAPI:
     cron_secret = _required_secret(
         settings.internal_cron_secret, "INTERNAL_CRON_SECRET"
     )
+    webhook_url = _webhook_url(settings)
     components: BuildWiseComponents = build_components(settings)
     health = RuntimeHealth()
 
@@ -50,13 +65,23 @@ def create_webhook_api(settings: Settings) -> FastAPI:
             await components.handlers.post_init(telegram)
             await telegram.start()
             started = True
+            await telegram.bot.set_webhook(
+                url=webhook_url,
+                secret_token=webhook_secret,
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=False,
+            )
             health.ready = True
             logging.getLogger(__name__).info(
-                "BuildWise webhook runtime ready model=%s", settings.openai_model
+                "BuildWise webhook runtime ready model=%s endpoint=%s",
+                settings.openai_model,
+                webhook_url,
             )
             yield
         finally:
             health.ready = False
+            # Intentionally keep the Telegram webhook registered during restarts.
+            # Removing it would allow stale getUpdates pollers to resume stealing updates.
             if started:
                 await telegram.stop()
             if initialized:
@@ -66,7 +91,7 @@ def create_webhook_api(settings: Settings) -> FastAPI:
     api = FastAPI(
         title="BuildWise AI",
         description="Telegram webhook service for BuildWise AI.",
-        version="1.2.0",
+        version="1.3.0",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
