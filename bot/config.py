@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     telegram_webhook_secret: SecretStr | None = Field(
         default=None, validation_alias="TELEGRAM_WEBHOOK_SECRET"
     )
+    telegram_webhook_base_url: str = Field(
+        default="", validation_alias="TELEGRAM_WEBHOOK_BASE_URL"
+    )
     internal_cron_secret: SecretStr | None = Field(
         default=None, validation_alias="INTERNAL_CRON_SECRET"
     )
@@ -90,6 +93,14 @@ class Settings(BaseSettings):
         cleaned = value.strip().rstrip("/")
         if not cleaned.startswith("https://"):
             raise ValueError("SUPABASE_URL must begin with https://")
+        return cleaned
+
+    @field_validator("telegram_webhook_base_url")
+    @classmethod
+    def validate_webhook_base_url(cls, value: str) -> str:
+        cleaned = value.strip().rstrip("/")
+        if cleaned and not cleaned.startswith("https://"):
+            raise ValueError("TELEGRAM_WEBHOOK_BASE_URL must begin with https://")
         return cleaned
 
     @property
