@@ -108,6 +108,13 @@ class Settings(BaseSettings):
             raise ValueError("value cannot be blank")
         return value.strip()
 
+    @field_validator("webmcp_daily_request_limit", mode="before")
+    @classmethod
+    def blank_webmcp_daily_limit_means_inherit(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @field_validator("supabase_url")
     @classmethod
     def validate_supabase_url(cls, value: str) -> str:
