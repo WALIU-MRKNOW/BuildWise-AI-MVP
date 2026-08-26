@@ -46,6 +46,16 @@ class WebMCPAuthTests(unittest.TestCase):
         self.assertEqual(len(first), 64)
         self.assertNotIn("preview-access-key", first)
 
+    def test_blank_optional_daily_limit_means_inherit(self) -> None:
+        settings = Settings(
+            TELEGRAM_BOT_TOKEN="123456789:" + "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk",
+            OPENAI_API_KEY="sk-test-placeholder",
+            SUPABASE_URL="https://example.supabase.co",
+            SUPABASE_SECRET_KEY="sb_secret_test_placeholder",
+            WEBMCP_DAILY_REQUEST_LIMIT="",
+        )
+        self.assertIsNone(settings.webmcp_daily_request_limit)
+
 
 if __name__ == "__main__":
     unittest.main()
