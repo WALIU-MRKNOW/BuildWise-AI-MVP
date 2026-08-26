@@ -42,6 +42,27 @@ class Settings(BaseSettings):
     admin_username: str = Field(default="", validation_alias="ADMIN_USERNAME")
     admin_password: SecretStr | None = Field(default=None, validation_alias="ADMIN_PASSWORD")
 
+    # WebMCP is opt-in. Keeping this false preserves the production Telegram-only surface.
+    webmcp_enabled: bool = Field(default=False, validation_alias="WEBMCP_ENABLED")
+    webmcp_access_key: SecretStr | None = Field(
+        default=None, validation_alias="WEBMCP_ACCESS_KEY"
+    )
+    webmcp_session_secret: SecretStr | None = Field(
+        default=None, validation_alias="WEBMCP_SESSION_SECRET"
+    )
+    webmcp_session_ttl_seconds: int = Field(
+        default=28800,
+        ge=300,
+        le=86400,
+        validation_alias="WEBMCP_SESSION_TTL_SECONDS",
+    )
+    webmcp_daily_request_limit: int | None = Field(
+        default=None,
+        ge=1,
+        le=1000,
+        validation_alias="WEBMCP_DAILY_REQUEST_LIMIT",
+    )
+
     openai_model: str = Field(default="gpt-5.6-terra", validation_alias="OPENAI_MODEL")
     openai_max_output_tokens: int = Field(
         default=1200,
