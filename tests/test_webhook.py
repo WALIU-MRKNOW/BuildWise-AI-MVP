@@ -12,6 +12,7 @@ def webhook_settings(**overrides: object) -> Settings:
         "SUPABASE_SECRET_KEY": "sb_secret_test_placeholder",
         "RUNTIME_MODE": "webhook",
         "TELEGRAM_WEBHOOK_SECRET": "telegram-webhook-secret-123456",
+        "TELEGRAM_WEBHOOK_BASE_URL": "https://buildwise.example.test",
         "INTERNAL_CRON_SECRET": "internal-cron-secret-123456789",
     }
     values.update(overrides)
