@@ -22,7 +22,7 @@ def webhook_settings(**overrides: object) -> Settings:
 class WebhookRuntimeTests(unittest.TestCase):
     def test_webhook_routes_are_registered(self) -> None:
         api = create_webhook_api(webhook_settings())
-        routes = {route.path for route in api.routes}
+        routes = {path for route in api.routes if (path := getattr(route, "path", None))}
         self.assertIn("/health", routes)
         self.assertIn("/telegram/webhook", routes)
         self.assertIn("/internal/reminders", routes)
