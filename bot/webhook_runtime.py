@@ -19,6 +19,7 @@ from bot.api import RuntimeHealth
 from bot.app import BuildWiseComponents, build_components
 from bot.config import Settings, load_settings
 from bot.runtime import configure_logging
+from bot.webmcp.router import create_webmcp_router
 
 
 def _required_secret(value: object, name: str) -> str:
@@ -91,7 +92,7 @@ def create_webhook_api(settings: Settings) -> FastAPI:
     api = FastAPI(
         title="BuildWise AI",
         description="Telegram webhook service for BuildWise AI.",
-        version="1.3.0",
+        version="1.4.0",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
@@ -146,6 +147,8 @@ def create_webhook_api(settings: Settings) -> FastAPI:
 
     log_admin_configuration(settings)
     api.include_router(create_admin_router(settings))
+    if settings.webmcp_enabled:
+        api.include_router(create_webmcp_router(settings))
     return api
 
 

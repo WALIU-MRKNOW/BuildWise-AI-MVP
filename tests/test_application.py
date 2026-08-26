@@ -26,10 +26,11 @@ class ApplicationTests(unittest.TestCase):
         self.assertGreaterEqual(handler_count, 20)
 
 
-
 class HealthEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_health_endpoint(self) -> None:
-        transport = httpx.ASGITransport(app=create_api(RuntimeHealth(ready=True)))
+        transport = httpx.ASGITransport(
+            app=create_api(RuntimeHealth(ready=True), test_settings())
+        )
         async with httpx.AsyncClient(
             transport=transport, base_url="http://test"
         ) as client:
