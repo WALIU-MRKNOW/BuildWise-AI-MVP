@@ -42,6 +42,33 @@ class Settings(BaseSettings):
     admin_username: str = Field(default="", validation_alias="ADMIN_USERNAME")
     admin_password: SecretStr | None = Field(default=None, validation_alias="ADMIN_PASSWORD")
 
+    # BuildWise Pro is preview-only until explicitly enabled in a reviewed environment.
+    buildwise_pro_enabled: bool = Field(default=False, validation_alias="BUILDWISE_PRO_ENABLED")
+    buildwise_pro_access_key: SecretStr | None = Field(
+        default=None, validation_alias="BUILDWISE_PRO_ACCESS_KEY"
+    )
+    buildwise_pro_session_secret: SecretStr | None = Field(
+        default=None, validation_alias="BUILDWISE_PRO_SESSION_SECRET"
+    )
+    buildwise_pro_session_ttl_seconds: int = Field(
+        default=28800,
+        ge=300,
+        le=86400,
+        validation_alias="BUILDWISE_PRO_SESSION_TTL_SECONDS",
+    )
+    buildwise_pro_daily_request_limit: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        validation_alias="BUILDWISE_PRO_DAILY_REQUEST_LIMIT",
+    )
+    buildwise_pro_max_file_size_mb: int = Field(
+        default=10,
+        ge=1,
+        le=20,
+        validation_alias="BUILDWISE_PRO_MAX_FILE_SIZE_MB",
+    )
+
     openai_model: str = Field(default="gpt-5.6-terra", validation_alias="OPENAI_MODEL")
     openai_max_output_tokens: int = Field(
         default=1200,
@@ -121,6 +148,10 @@ class Settings(BaseSettings):
     @property
     def max_file_size_bytes(self) -> int:
         return self.max_file_size_mb * 1024 * 1024
+
+    @property
+    def buildwise_pro_max_file_size_bytes(self) -> int:
+        return self.buildwise_pro_max_file_size_mb * 1024 * 1024
 
 
 @lru_cache(maxsize=1)
