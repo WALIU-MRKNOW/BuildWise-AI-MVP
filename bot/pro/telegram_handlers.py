@@ -55,7 +55,7 @@ def _list_html(items: list[str]) -> str:
 
 
 def render_report_html(report: ProfessionalReport, project_information: str) -> bytes:
-    """Render a self-contained draft report without adding a document-generation dependency."""
+    """Render a self-contained draft report without a new document-generation stack."""
     sections: list[tuple[str, str]] = []
     if report.template_structure_used and report.template_sections:
         sections.extend(
@@ -75,7 +75,6 @@ def render_report_html(report: ProfessionalReport, project_information: str) -> 
             ]
         )
 
-    # These safety/review sections are appended regardless of company template structure.
     sections.extend(
         [
             ("Limitations / assumptions", _list_html(report.limitations_assumptions)),
@@ -97,7 +96,7 @@ def render_report_html(report: ProfessionalReport, project_information: str) -> 
 
 
 class TelegramProHandlers:
-    """Conversation-scoped Pro beta handlers; student state remains untouched outside Pro."""
+    """Conversation-scoped Pro beta handlers; student state stays namespaced and intact."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -107,23 +106,39 @@ class TelegramProHandlers:
         self._locks: dict[int, asyncio.Lock] = {}
 
     def register(self, application: Application) -> None:
+        invalid = MessageHandler(filters.ALL & ~filters.COMMAND, self.invalid_step)
+        cancel_button = CallbackQueryHandler(self.cancel_callback, pattern=r"^pro:cancel$")
         conversation = ConversationHandler(
             entry_points=[CommandHandler("pro", self.start)],
             states={
-                PROJECT: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.project_information)],
-                DRAWING: [MessageHandler(filters.PHOTO | filters.Document.ALL, self.drawing)],
-                NOTES: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.site_notes)],
+                PROJECT: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.project_information),
+                    invalid,
+                ],
+                DRAWING: [
+                    MessageHandler(filters.PHOTO | filters.Document.ALL, self.drawing),
+                    invalid,
+                ],
+                NOTES: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.site_notes),
+                    invalid,
+                ],
                 TEMPLATE: [
                     CallbackQueryHandler(self.template_skip, pattern=r"^pro:template:skip$"),
+                    cancel_button,
                     MessageHandler(filters.Document.ALL, self.template),
+                    invalid,
                 ],
                 STANDARD: [
                     CallbackQueryHandler(self.standard_skip, pattern=r"^pro:standard:skip$"),
+                    cancel_button,
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.standard_reference),
+                    invalid,
                 ],
                 CONFIRM: [
                     CallbackQueryHandler(self.generate, pattern=r"^pro:generate$"),
-                    CallbackQueryHandler(self.cancel_callback, pattern=r"^pro:cancel$"),
+                    cancel_button,
+                    invalid,
                 ],
             },
             fallbacks=[
@@ -134,9 +149,9 @@ class TelegramProHandlers:
             name="buildwise-pro-report-beta",
             persistent=False,
         )
-        # Register before the student catch-all MessageHandler. ConversationHandler only
-        # consumes messages while a Pro conversation is active.
         application.add_handler(conversation)
+        # Give /pro_cancel a harmless response even when no Pro conversation is active.
+        application.add_handler(CommandHandler("pro_cancel", self.cancel))
 
     def _authorized(self, update: Update) -> bool:
         user = update.effective_user
@@ -159,10 +174,14 @@ class TelegramProHandlers:
         if message is None:
             return ConversationHandler.END
         if not self._settings.buildwise_pro_enabled:
-            await message.reply_text("BuildWise Pro is not enabled yet. Your student BuildWise features are unchanged.")
+            await message.reply_text(
+                "BuildWise Pro is not enabled yet. Your student BuildWise features are unchanged."
+            )
             return ConversationHandler.END
         if not self._authorized(update):
-            await message.reply_text("BuildWise Pro is currently a restricted professional beta and is not enabled for this account.")
+            await message.reply_text(
+                "BuildWise Pro is currently a restricted professional beta and is not enabled for this account."
+            )
             return ConversationHandler.END
         context.user_data.pop(PRO_STATE_KEY, None)
         self._state(context)
@@ -177,10 +196,20 @@ class TelegramProHandlers:
         )
         return PROJECT
 
+    async def invalid_step(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int | None:
+        if update.effective_message:
+            await update.effective_message.reply_text(
+                "That input does not match the current BuildWise Pro step. Follow the prompt above or use /pro_cancel."
+            )
+        # Returning None keeps the current ConversationHandler state unchanged.
+        return None
+
     async def project_information(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         text = (update.effective_message.text or "").strip() if update.effective_message else ""
         if len(text) < 2 or len(text) > 2000:
-            await update.effective_message.reply_text("Send concise project information between 2 and 2,000 characters.")
+            await update.effective_message.reply_text(
+                "Send concise project information between 2 and 2,000 characters."
+            )
             return PROJECT
         self._state(context)["project_information"] = text
         await update.effective_message.reply_text(
@@ -196,9 +225,6 @@ class TelegramProHandlers:
         message = update.effective_message
         if message is None:
             return DRAWING
-        filename: str
-        file_id: str
-        declared_size: int | None
         if message.photo:
             photo = message.photo[-1]
             filename = "telegram-sketch.jpg"
@@ -213,19 +239,30 @@ class TelegramProHandlers:
             return DRAWING
         max_bytes = self._settings.buildwise_pro_max_file_size_bytes
         if declared_size is not None and declared_size > max_bytes:
-            await message.reply_text(f"That file is too large. BuildWise Pro allows up to {self._settings.buildwise_pro_max_file_size_mb} MB.")
+            await message.reply_text(
+                f"That file is too large. BuildWise Pro allows up to {self._settings.buildwise_pro_max_file_size_mb} MB."
+            )
             return DRAWING
         data = await self._download(context, file_id)
         if len(data) > max_bytes:
-            await message.reply_text(f"That file is too large. BuildWise Pro allows up to {self._settings.buildwise_pro_max_file_size_mb} MB.")
+            await message.reply_text(
+                f"That file is too large. BuildWise Pro allows up to {self._settings.buildwise_pro_max_file_size_mb} MB."
+            )
             return DRAWING
         try:
             mime_type = detect_pro_file_type(filename, data)
         except ProFileValidationError as exc:
             await message.reply_text(str(exc))
             return DRAWING
-        self._state(context)["drawing"] = ProFile(filename=filename[:180], mime_type=mime_type, data=data)
-        logger.info("BuildWise Pro Telegram drawing accepted user_id=%s type=%s size=%s", update.effective_user.id if update.effective_user else None, mime_type, len(data))
+        self._state(context)["drawing"] = ProFile(
+            filename=filename[:180], mime_type=mime_type, data=data
+        )
+        logger.info(
+            "BuildWise Pro Telegram drawing accepted user_id=%s type=%s size=%s",
+            update.effective_user.id if update.effective_user else None,
+            mime_type,
+            len(data),
+        )
         await message.reply_text(
             "Step 3 of 6 — Site notes\n\nSend the factual site observations or notes you want included in the report. BuildWise treats these as user-provided evidence, not independently verified facts."
         )
@@ -234,15 +271,22 @@ class TelegramProHandlers:
     async def site_notes(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         text = (update.effective_message.text or "").strip() if update.effective_message else ""
         if len(text) < 3:
-            await update.effective_message.reply_text("Please provide factual site observations or notes before continuing.")
+            await update.effective_message.reply_text(
+                "Please provide factual site observations or notes before continuing."
+            )
             return NOTES
         if len(text) > 16000:
-            await update.effective_message.reply_text("Site notes are too long for this beta. Keep them under 16,000 characters.")
+            await update.effective_message.reply_text(
+                "Site notes are too long for this beta. Keep them under 16,000 characters."
+            )
             return NOTES
         self._state(context)["site_notes"] = text
         await update.effective_message.reply_text(
             "Step 4 of 6 — Company template\n\nUpload an optional PDF, TXT, or Markdown company report template, or continue without one.",
-            reply_markup=_buttons(("Continue without template", "pro:template:skip"), ("Cancel", "pro:cancel")),
+            reply_markup=_buttons(
+                ("Continue without template", "pro:template:skip"),
+                ("Cancel", "pro:cancel"),
+            ),
         )
         return TEMPLATE
 
@@ -251,7 +295,10 @@ class TelegramProHandlers:
         self._state(context)["template"] = None
         await update.callback_query.edit_message_text(
             "Step 5 of 6 — Engineering standard / code reference\n\nType an optional reference such as BS 8110, Eurocode 2, or ACI 318. A name is contextual information only; BuildWise will not invent clauses, editions, equations, limits, citations, or compliance results.",
-            reply_markup=_buttons(("Continue without standard reference", "pro:standard:skip"), ("Cancel", "pro:cancel")),
+            reply_markup=_buttons(
+                ("Continue without standard reference", "pro:standard:skip"),
+                ("Cancel", "pro:cancel"),
+            ),
         )
         return STANDARD
 
@@ -263,29 +310,45 @@ class TelegramProHandlers:
         filename = document.file_name or "template"
         max_bytes = self._settings.buildwise_pro_max_file_size_bytes
         if document.file_size is not None and document.file_size > max_bytes:
-            await message.reply_text(f"That template is too large. Maximum: {self._settings.buildwise_pro_max_file_size_mb} MB.")
+            await message.reply_text(
+                f"That template is too large. Maximum: {self._settings.buildwise_pro_max_file_size_mb} MB."
+            )
             return TEMPLATE
         data = await self._download(context, document.file_id)
         if len(data) > max_bytes:
-            await message.reply_text(f"That template is too large. Maximum: {self._settings.buildwise_pro_max_file_size_mb} MB.")
+            await message.reply_text(
+                f"That template is too large. Maximum: {self._settings.buildwise_pro_max_file_size_mb} MB."
+            )
             return TEMPLATE
         try:
             mime_type = detect_pro_file_type(filename, data, template=True)
         except ProFileValidationError as exc:
             await message.reply_text(str(exc))
             return TEMPLATE
-        self._state(context)["template"] = ProFile(filename=filename[:180], mime_type=mime_type, data=data)
-        logger.info("BuildWise Pro Telegram template accepted user_id=%s type=%s size=%s", update.effective_user.id if update.effective_user else None, mime_type, len(data))
+        self._state(context)["template"] = ProFile(
+            filename=filename[:180], mime_type=mime_type, data=data
+        )
+        logger.info(
+            "BuildWise Pro Telegram template accepted user_id=%s type=%s size=%s",
+            update.effective_user.id if update.effective_user else None,
+            mime_type,
+            len(data),
+        )
         await message.reply_text(
             "Step 5 of 6 — Engineering standard / code reference\n\nType an optional reference such as BS 8110, Eurocode 2, or ACI 318. BuildWise will treat the name as context only unless permitted source text is actually supplied.",
-            reply_markup=_buttons(("Continue without standard reference", "pro:standard:skip"), ("Cancel", "pro:cancel")),
+            reply_markup=_buttons(
+                ("Continue without standard reference", "pro:standard:skip"),
+                ("Cancel", "pro:cancel"),
+            ),
         )
         return STANDARD
 
     async def standard_reference(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         text = (update.effective_message.text or "").strip() if update.effective_message else ""
         if len(text) > 1200:
-            await update.effective_message.reply_text("Keep the standard/code reference under 1,200 characters.")
+            await update.effective_message.reply_text(
+                "Keep the standard/code reference under 1,200 characters."
+            )
             return STANDARD
         self._state(context)["standard_reference"] = text
         return await self._confirmation(update, context)
@@ -295,20 +358,30 @@ class TelegramProHandlers:
         self._state(context)["standard_reference"] = ""
         return await self._confirmation(update, context, edit=True)
 
-    async def _confirmation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool = False) -> int:
+    async def _confirmation(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        *,
+        edit: bool = False,
+    ) -> int:
         state = self._state(context)
         drawing = state.get("drawing")
         template = state.get("template")
+        filename = getattr(drawing, "filename", "missing")
         text = (
             "Step 6 of 6 — Confirm draft generation\n\n"
             f"Project information: {'received' if state.get('project_information') else 'missing'}\n"
-            f"Drawing/sketch: {escape(getattr(drawing, 'filename', 'missing'))}\n"
+            f"Drawing/sketch: {filename}\n"
             f"Site notes: {'received' if state.get('site_notes') else 'missing'}\n"
             f"Company template: {'yes' if template else 'no'}\n"
             f"Standard/code reference: {'yes' if state.get('standard_reference') else 'no'}\n\n"
             "⚠️ DRAFT ENGINEERING ASSISTANCE ONLY\nGenerate only after confirming these inputs are correct."
         )
-        markup = _buttons(("Generate Draft Report", "pro:generate"), ("Cancel", "pro:cancel"))
+        markup = _buttons(
+            ("Generate Draft Report", "pro:generate"),
+            ("Cancel", "pro:cancel"),
+        )
         if edit and update.callback_query:
             await update.callback_query.edit_message_text(text, reply_markup=markup)
         else:
@@ -320,24 +393,35 @@ class TelegramProHandlers:
         await query.answer()
         user = update.effective_user
         if user is None or not self._authorized(update):
-            await query.edit_message_text("BuildWise Pro beta access is not authorized for this account.")
+            await query.edit_message_text(
+                "BuildWise Pro beta access is not authorized for this account."
+            )
             context.user_data.pop(PRO_STATE_KEY, None)
             return ConversationHandler.END
         lock = self._locks.setdefault(user.id, asyncio.Lock())
         if lock.locked():
-            await query.answer("A BuildWise Pro report is already being generated.", show_alert=True)
+            await query.edit_message_text(
+                "A BuildWise Pro report is already being generated for this account."
+            )
             return CONFIRM
         state = self._state(context)
         drawing = state.get("drawing")
         if not isinstance(drawing, ProFile) or not state.get("site_notes"):
-            await query.edit_message_text("The Pro workflow is incomplete. Start again with /pro.")
+            await query.edit_message_text(
+                "The Pro workflow is incomplete. Start again with /pro."
+            )
             context.user_data.pop(PRO_STATE_KEY, None)
             return ConversationHandler.END
 
         async with lock:
-            allowed, used = await self._limiter.reserve(str(user.id), date.today(), self._settings.buildwise_pro_daily_request_limit)
+            usage_date = date.today()
+            allowed, used = await self._limiter.reserve(
+                str(user.id), usage_date, self._settings.buildwise_pro_daily_request_limit
+            )
             if not allowed:
-                await query.edit_message_text("BuildWise Pro beta daily report limit reached. Try again after the daily reset.")
+                await query.edit_message_text(
+                    "BuildWise Pro beta daily report limit reached. Try again after the daily reset."
+                )
                 return CONFIRM
             started = monotonic()
             await query.edit_message_text("BuildWise Pro is generating your draft report…")
@@ -356,9 +440,15 @@ class TelegramProHandlers:
                     template=template if isinstance(template, ProFile) else None,
                 )
             except (AIServiceError, ValidationError) as exc:
-                await self._limiter.refund(str(user.id), date.today())
-                public_message = exc.public_message if isinstance(exc, AIServiceError) else "The report inputs could not be validated. Start again with /pro."
-                logger.warning("BuildWise Pro Telegram generation failed user_id=%s", user.id)
+                await self._limiter.refund(str(user.id), usage_date)
+                public_message = (
+                    exc.public_message
+                    if isinstance(exc, AIServiceError)
+                    else "The report inputs could not be validated. Start again with /pro."
+                )
+                logger.warning(
+                    "BuildWise Pro Telegram generation failed user_id=%s", user.id
+                )
                 await query.edit_message_text(public_message)
                 context.user_data.pop(PRO_STATE_KEY, None)
                 return ConversationHandler.END
@@ -379,7 +469,9 @@ class TelegramProHandlers:
                 await context.bot.send_document(
                     chat_id=update.effective_chat.id,
                     document=InputFile(BytesIO(html), filename=filename),
-                    caption="BuildWise Pro draft report — professional review required before real-world use.",
+                    caption=(
+                        "BuildWise Pro draft report — professional review required before real-world use."
+                    ),
                 )
             logger.info(
                 "BuildWise Pro Telegram report generated user_id=%s drawing_type=%s template=%s standard_ref=%s usage=%s/%s latency_ms=%s",
@@ -397,11 +489,15 @@ class TelegramProHandlers:
     async def cancel_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.callback_query.answer()
         context.user_data.pop(PRO_STATE_KEY, None)
-        await update.callback_query.edit_message_text("BuildWise Pro report workflow cancelled. Your student BuildWise state is unchanged.")
+        await update.callback_query.edit_message_text(
+            "BuildWise Pro report workflow cancelled. Your student BuildWise state is unchanged."
+        )
         return ConversationHandler.END
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         context.user_data.pop(PRO_STATE_KEY, None)
         if update.effective_message:
-            await update.effective_message.reply_text("BuildWise Pro report workflow cancelled. Your student BuildWise state is unchanged.")
+            await update.effective_message.reply_text(
+                "BuildWise Pro report workflow cancelled. Your student BuildWise state is unchanged."
+            )
         return ConversationHandler.END
