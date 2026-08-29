@@ -10,6 +10,7 @@ from bot.config import Settings
 from bot.handlers.bot_handlers import BotHandlers
 from bot.handlers.referral_handlers import ReferralHandlers
 from bot.handlers.support_handlers import SupportHandlers
+from bot.pro.telegram_handlers import TelegramProHandlers
 from bot.router import RequestRouter
 from bot.services.admin_service import AdminService
 from bot.services.referral_service import ReferralService
@@ -41,14 +42,17 @@ def build_components(settings: Settings) -> BuildWiseComponents:
     )
     support_handlers = SupportHandlers(database, AdminService(settings))
     referral_handlers = ReferralHandlers(ReferralService(settings), handlers)
+    pro_handlers = TelegramProHandlers(settings)
     telegram = (
         Application.builder()
         .token(settings.telegram_bot_token.get_secret_value())
         .build()
     )
-    # Referral/support commands are registered first. Referral /start delegates
-    # to the existing start handler after attribution; AI/image/PDF handlers remain unchanged.
+    # Referral/support commands are registered first. Pro is then registered before the
+    # student catch-all message handler, but only consumes updates while a /pro conversation
+    # is active. Existing AI/image/PDF/referral/support handlers remain unchanged.
     referral_handlers.register(telegram)
     support_handlers.register(telegram)
+    pro_handlers.register(telegram)
     handlers.register(telegram)
     return BuildWiseComponents(telegram, handlers, database, reminders)
