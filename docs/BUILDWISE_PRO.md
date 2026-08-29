@@ -11,7 +11,7 @@ Inputs:
 - one drawing/sketch: PDF, PNG, JPG/JPEG
 - typed site notes
 - optional project/document information
-- optional company report template: PDF
+- optional company report template: PDF, TXT, or Markdown
 - optional engineering code/standard reference supplied as text
 
 Output is a structured **draft** report containing:
@@ -29,7 +29,7 @@ Output is a structured **draft** report containing:
 - review/sign-off section
 - mandatory professional-review notice
 
-If a PDF company template is supplied, the AI is instructed to follow its visible section structure as closely as practical while retaining mandatory safety/limitations sections.
+When a company template is supplied, BuildWise Pro asks the model to map the draft into the template's visible headings/order and returns those mappings as structured `template_sections`. The server—not the model—decides whether a template was actually supplied. The human-facing report renders mapped template sections first when they are reliable, while mandatory BuildWise Pro limitations, uncertainty, and professional-review sections remain present.
 
 ## Architecture
 
@@ -62,9 +62,11 @@ BuildWise Pro is explicitly instructed not to invent:
 
 Missing, unclear, or uncertain information must be surfaced in `uncertainties_missing_information`.
 
+Uploaded drawings, templates, and site notes are treated as **untrusted source material**, not instructions that may override the Pro safety rules.
+
 A user-entered code/standard name is treated only as a reference identifier. The MVP does not retrieve standards text and must not fabricate clauses or assert compliance from a name alone.
 
-Calculations, code compliance, structural conclusions, design decisions, and drawings must be reviewed and approved by a suitably qualified professional before real-project use.
+Calculations, code compliance, structural conclusions, design decisions, and drawings must be reviewed and approved by a suitably qualified professional before real-project use. The professional-review notice and review/sign-off text are enforced server-side so model output cannot weaken them.
 
 ## Security and privacy
 
@@ -75,9 +77,9 @@ Calculations, code compliance, structural conclusions, design decisions, and dra
 - report and logout POSTs require a session-bound CSRF token
 - access/session secrets never appear in browser HTML or JavaScript
 - the page contains no application JavaScript
-- file extension **and magic signature** are validated
-- file size is bounded before AI processing
-- company templates are PDF-only in this MVP
+- file extension **and magic signature** are validated for drawings/PDF templates
+- text templates must be UTF-8 and are capped at 256 KB
+- all uploaded files are size-bounded before AI processing
 - generated HTML escapes model output before rendering
 - CSP, no-store, no-referrer, nosniff, and anti-framing headers are applied
 - request logs contain file type/template presence and usage counts, not document contents
@@ -113,10 +115,11 @@ Existing BuildWise `OPENAI_*` configuration is reused. No new database or storag
    ```
 
 4. Run the normal BuildWise API/runtime for your local environment.
-5. Open `https://<your-local-or-preview-origin>/pro`. Secure cookies require HTTPS for browser testing; automated tests can validate cookie attributes without a public deployment.
+5. Open `https://<your-local-or-preview-origin>/pro`. The session cookie is intentionally `Secure`, so browser testing requires HTTPS. Automated tests use an HTTPS TestClient origin.
 6. Sign in with `BUILDWISE_PRO_ACCESS_KEY`.
-7. Upload a small PDF/image drawing, enter factual site notes, optionally attach a PDF company template and standard name, then generate the draft.
-8. Confirm the output contains the mandatory review notice and explicitly flags missing/uncertain information.
+7. Upload a small PDF/image drawing, enter factual site notes, optionally attach a PDF/TXT/Markdown company template and standard name, then generate the draft.
+8. If a template is supplied, confirm its headings/order appear in the mapped draft where reliably extractable.
+9. Confirm the output contains the mandatory review notice and explicitly flags missing/uncertain information.
 
 Run all tests with:
 
@@ -136,7 +139,7 @@ Do not enable `BUILDWISE_PRO_ENABLED` in production until review, preview testin
 Professional Report Generator.
 
 ### Phase 2
-Company Template Support beyond PDF and stronger template-field mapping/versioning.
+Persistent organization/company template libraries, template field mapping/versioning, DOCX support, report history, and organization authentication.
 
 ### Phase 3
 Engineering Code / Standards-Aware Workflows using licensed/authorized source material, retrieval, citations, jurisdiction/version controls, and explicit compliance review.
