@@ -12,6 +12,7 @@ def webhook_settings(**overrides: object) -> Settings:
         "SUPABASE_SECRET_KEY": "sb_secret_test_placeholder",
         "RUNTIME_MODE": "webhook",
         "TELEGRAM_WEBHOOK_SECRET": "telegram-webhook-secret-123456",
+        "TELEGRAM_WEBHOOK_BASE_URL": "https://buildwise.example.test",
         "INTERNAL_CRON_SECRET": "internal-cron-secret-123456789",
     }
     values.update(overrides)
@@ -21,7 +22,7 @@ def webhook_settings(**overrides: object) -> Settings:
 class WebhookRuntimeTests(unittest.TestCase):
     def test_webhook_routes_are_registered(self) -> None:
         api = create_webhook_api(webhook_settings())
-        routes = {route.path for route in api.routes}
+        routes = {getattr(route, "path", None) for route in api.routes}
         self.assertIn("/health", routes)
         self.assertIn("/telegram/webhook", routes)
         self.assertIn("/internal/reminders", routes)
