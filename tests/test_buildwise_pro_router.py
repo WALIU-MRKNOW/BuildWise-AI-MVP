@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from bot.api import RuntimeHealth, create_api
 from bot.config import Settings
-from bot.pro.models import PROFESSIONAL_REVIEW_NOTICE, ProfessionalReport
+from bot.pro.models import PROFESSIONAL_REVIEW_NOTICE, ProfessionalReport, TemplateSection
 
 
 def settings(*, enabled: bool) -> Settings:
@@ -26,7 +26,7 @@ def settings(*, enabled: bool) -> Settings:
     return Settings(**values)
 
 
-def sample_report() -> ProfessionalReport:
+def sample_report(*, template: bool = False) -> ProfessionalReport:
     return ProfessionalReport(
         project_document_information=["Project A"],
         summary="Draft summary.",
@@ -38,11 +38,32 @@ def sample_report() -> ProfessionalReport:
         recommendations=["Professional review required."],
         limitations_assumptions=["No site inspection by BuildWise."],
         uncertainties_missing_information=["Load data not supplied."],
-        review_signoff="Draft for suitably qualified professional review.",
+        template_structure_used=template,
+        template_sections=(
+            [
+                TemplateSection(
+                    heading="Company Findings",
+                    content=["Mapped finding from supplied evidence."],
+                )
+            ]
+            if template
+            else []
+        ),
     )
 
 
 class BuildWiseProRouterTests(unittest.TestCase):
+    def _authenticated_client(self):
+        app = create_api(RuntimeHealth(ready=True), settings(enabled=True))
+        client = TestClient(app, base_url="https://testserver")
+        client.post(
+            "/pro/login",
+            data={"access_key": "pro-preview-access-key-123456789"},
+        )
+        page = client.get("/pro")
+        csrf = re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)
+        return client, csrf
+
     def test_disabled_feature_does_not_mount_pro_routes(self) -> None:
         app = create_api(RuntimeHealth(ready=True), settings(enabled=False))
         paths = {getattr(route, "path", None) for route in app.routes}
@@ -84,11 +105,7 @@ class BuildWiseProRouterTests(unittest.TestCase):
         self.assertEqual(invalid_file.status_code, 400)
 
     def test_structured_report_renders_with_safety_notice(self) -> None:
-        app = create_api(RuntimeHealth(ready=True), settings(enabled=True))
-        client = TestClient(app, base_url="https://testserver")
-        client.post("/pro/login", data={"access_key": "pro-preview-access-key-123456789"})
-        page = client.get("/pro")
-        csrf = re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)
+        client, csrf = self._authenticated_client()
         with patch(
             "bot.pro.router.ProfessionalReportService.generate_professional_report",
             new=AsyncMock(return_value=sample_report()),
@@ -109,6 +126,35 @@ class BuildWiseProRouterTests(unittest.TestCase):
         self.assertIn("Load data not supplied", response.text)
         self.assertEqual(response.headers.get("x-frame-options"), "DENY")
         self.assertEqual(response.headers.get("cache-control"), "no-store")
+
+    def test_markdown_company_template_is_validated_and_rendered_in_template_order(self) -> None:
+        client, csrf = self._authenticated_client()
+        mock_generate = AsyncMock(return_value=sample_report(template=True))
+        with patch(
+            "bot.pro.router.ProfessionalReportService.generate_professional_report",
+            new=mock_generate,
+        ):
+            response = client.post(
+                "/pro/report",
+                data={
+                    "csrf": csrf,
+                    "project_information": "Project A",
+                    "site_notes": "Observed cracking near support.",
+                },
+                files={
+                    "drawing": ("drawing.pdf", b"%PDF-1.7 test", "application/pdf"),
+                    "template": (
+                        "company-template.md",
+                        b"# Company Report\n## Findings",
+                        "text/markdown",
+                    ),
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Company Findings", response.text)
+        self.assertIn("Mapped finding from supplied evidence", response.text)
+        call = mock_generate.await_args.kwargs
+        self.assertEqual(call["template"].mime_type, "text/markdown")
 
     def test_unauthorized_report_request_fails(self) -> None:
         app = create_api(RuntimeHealth(ready=True), settings(enabled=True))
