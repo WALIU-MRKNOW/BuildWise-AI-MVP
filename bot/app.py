@@ -10,7 +10,7 @@ from bot.config import Settings
 from bot.handlers.bot_handlers import BotHandlers
 from bot.handlers.referral_handlers import ReferralHandlers
 from bot.handlers.support_handlers import SupportHandlers
-from bot.pro.telegram_document_handlers import TelegramProDocumentHandlers
+from bot.pro.telegram_menu_handlers import TelegramProMenuHandlers
 from bot.router import RequestRouter
 from bot.services.admin_service import AdminService
 from bot.services.referral_service import ReferralService
@@ -42,7 +42,7 @@ def build_components(settings: Settings) -> BuildWiseComponents:
     )
     support_handlers = SupportHandlers(database, AdminService(settings))
     referral_handlers = ReferralHandlers(ReferralService(settings), handlers)
-    pro_handlers = TelegramProDocumentHandlers(settings)
+    pro_handlers = TelegramProMenuHandlers(settings)
     telegram = (
         Application.builder()
         .token(settings.telegram_bot_token.get_secret_value())
