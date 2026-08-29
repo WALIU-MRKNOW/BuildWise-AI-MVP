@@ -24,7 +24,7 @@ class ProAuthError(RuntimeError):
 
 def _secret(value: object | None, name: str, *, min_length: int) -> str:
     if value is None:
-        raise ProAuthError(f"{name} is required when BUILDWISE_PRO_ENABLED=true")
+        raise ProAuthError(f"{name} is required when BUILDWISE_PRO_WEB_ENABLED=true")
     secret = value.get_secret_value().strip()  # type: ignore[union-attr]
     if len(secret) < min_length:
         raise ProAuthError(f"{name} must contain at least {min_length} characters")
@@ -32,8 +32,12 @@ def _secret(value: object | None, name: str, *, min_length: int) -> str:
 
 
 def validate_pro_configuration(settings: Settings) -> None:
-    if not settings.buildwise_pro_enabled:
+    if not settings.buildwise_pro_web_enabled:
         return
+    if not settings.buildwise_pro_enabled:
+        raise ProAuthError(
+            "BUILDWISE_PRO_ENABLED must also be true when BUILDWISE_PRO_WEB_ENABLED=true"
+        )
     _secret(settings.buildwise_pro_access_key, "BUILDWISE_PRO_ACCESS_KEY", min_length=24)
     _secret(settings.buildwise_pro_session_secret, "BUILDWISE_PRO_SESSION_SECRET", min_length=32)
 
@@ -87,7 +91,7 @@ def stable_subject_hash(settings: Settings) -> str:
 
 
 class PreviewUsageLimiter:
-    """Process-local preview limiter with exact refund support on failed AI calls."""
+    """Process-local preview/beta limiter with exact refund support on failed AI calls."""
 
     def __init__(self) -> None:
         self._counts: dict[tuple[str, date], int] = defaultdict(int)
