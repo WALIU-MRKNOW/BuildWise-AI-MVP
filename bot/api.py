@@ -1,4 +1,4 @@
-"""FastAPI surface used by health checks and the private admin dashboard."""
+"""FastAPI surface used by health checks, admin, and optional BuildWise Pro web preview."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from bot.admin import create_admin_router, log_admin_configuration
 from bot.config import Settings
+from bot.pro.router import create_pro_router
 
 
 @dataclass(slots=True)
@@ -19,7 +20,7 @@ def create_api(health: RuntimeHealth, settings: Settings) -> FastAPI:
     api = FastAPI(
         title="BuildWise AI",
         description="Health service for the BuildWise Telegram MVP.",
-        version="1.1.0",
+        version="1.6.0",
         docs_url=None,
         redoc_url=None,
     )
@@ -40,4 +41,6 @@ def create_api(health: RuntimeHealth, settings: Settings) -> FastAPI:
 
     log_admin_configuration(settings)
     api.include_router(create_admin_router(settings))
+    if settings.buildwise_pro_enabled and settings.buildwise_pro_web_enabled:
+        api.include_router(create_pro_router(settings))
     return api

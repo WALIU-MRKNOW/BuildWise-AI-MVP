@@ -42,6 +42,40 @@ class Settings(BaseSettings):
     admin_username: str = Field(default="", validation_alias="ADMIN_USERNAME")
     admin_password: SecretStr | None = Field(default=None, validation_alias="ADMIN_PASSWORD")
 
+    # BuildWise Pro is disabled until explicitly enabled in a reviewed environment.
+    buildwise_pro_enabled: bool = Field(default=False, validation_alias="BUILDWISE_PRO_ENABLED")
+    # Keep the browser preview independently disabled in production Telegram deployments.
+    buildwise_pro_web_enabled: bool = Field(
+        default=False, validation_alias="BUILDWISE_PRO_WEB_ENABLED"
+    )
+    buildwise_pro_allowed_telegram_ids_raw: str = Field(
+        default="", validation_alias="BUILDWISE_PRO_ALLOWED_TELEGRAM_IDS"
+    )
+    buildwise_pro_access_key: SecretStr | None = Field(
+        default=None, validation_alias="BUILDWISE_PRO_ACCESS_KEY"
+    )
+    buildwise_pro_session_secret: SecretStr | None = Field(
+        default=None, validation_alias="BUILDWISE_PRO_SESSION_SECRET"
+    )
+    buildwise_pro_session_ttl_seconds: int = Field(
+        default=28800,
+        ge=300,
+        le=86400,
+        validation_alias="BUILDWISE_PRO_SESSION_TTL_SECONDS",
+    )
+    buildwise_pro_daily_request_limit: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        validation_alias="BUILDWISE_PRO_DAILY_REQUEST_LIMIT",
+    )
+    buildwise_pro_max_file_size_mb: int = Field(
+        default=10,
+        ge=1,
+        le=20,
+        validation_alias="BUILDWISE_PRO_MAX_FILE_SIZE_MB",
+    )
+
     openai_model: str = Field(default="gpt-5.6-terra", validation_alias="OPENAI_MODEL")
     openai_max_output_tokens: int = Field(
         default=1200,
@@ -103,24 +137,42 @@ class Settings(BaseSettings):
             raise ValueError("TELEGRAM_WEBHOOK_BASE_URL must begin with https://")
         return cleaned
 
-    @property
-    def allowed_user_ids(self) -> frozenset[int]:
-        if not self.allowed_user_ids_raw.strip():
+    @staticmethod
+    def _parse_id_list(raw: str, variable: str) -> frozenset[int]:
+        if not raw.strip():
             return frozenset()
         values: set[int] = set()
-        for raw_value in self.allowed_user_ids_raw.split(","):
+        for raw_value in raw.split(","):
             value = raw_value.strip()
             if not value:
                 continue
             try:
-                values.add(int(value))
+                parsed = int(value)
             except ValueError as exc:
-                raise ValueError("ALLOWED_USER_IDS must contain numeric IDs") from exc
+                raise ValueError(f"{variable} must contain numeric Telegram IDs") from exc
+            if parsed <= 0:
+                raise ValueError(f"{variable} must contain positive Telegram IDs")
+            values.add(parsed)
         return frozenset(values)
+
+    @property
+    def allowed_user_ids(self) -> frozenset[int]:
+        return self._parse_id_list(self.allowed_user_ids_raw, "ALLOWED_USER_IDS")
+
+    @property
+    def buildwise_pro_allowed_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(
+            self.buildwise_pro_allowed_telegram_ids_raw,
+            "BUILDWISE_PRO_ALLOWED_TELEGRAM_IDS",
+        )
 
     @property
     def max_file_size_bytes(self) -> int:
         return self.max_file_size_mb * 1024 * 1024
+
+    @property
+    def buildwise_pro_max_file_size_bytes(self) -> int:
+        return self.buildwise_pro_max_file_size_mb * 1024 * 1024
 
 
 @lru_cache(maxsize=1)
