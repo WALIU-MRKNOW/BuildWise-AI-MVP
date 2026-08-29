@@ -16,6 +16,7 @@ def settings(*, enabled: bool) -> Settings:
         SUPABASE_URL="https://example.supabase.co",
         SUPABASE_SECRET_KEY="sb_secret_test_placeholder",
         BUILDWISE_PRO_ENABLED=enabled,
+        BUILDWISE_PRO_WEB_ENABLED=enabled,
     )
     if enabled:
         values.update(
