@@ -82,7 +82,6 @@ def create_webhook_api(settings: Settings) -> FastAPI:
         finally:
             health.ready = False
             # Intentionally keep the Telegram webhook registered during restarts.
-            # Removing it would allow stale getUpdates pollers to resume stealing updates.
             if started:
                 await telegram.stop()
             if initialized:
@@ -92,7 +91,7 @@ def create_webhook_api(settings: Settings) -> FastAPI:
     api = FastAPI(
         title="BuildWise AI",
         description="Telegram webhook service for BuildWise AI.",
-        version="1.5.0",
+        version="1.6.0",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
@@ -147,7 +146,7 @@ def create_webhook_api(settings: Settings) -> FastAPI:
 
     log_admin_configuration(settings)
     api.include_router(create_admin_router(settings))
-    if settings.buildwise_pro_enabled:
+    if settings.buildwise_pro_enabled and settings.buildwise_pro_web_enabled:
         api.include_router(create_pro_router(settings))
     return api
 
