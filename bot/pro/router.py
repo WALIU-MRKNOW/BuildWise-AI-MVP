@@ -30,6 +30,8 @@ from bot.services.openai_service import AIServiceError
 logger = logging.getLogger(__name__)
 
 _ALLOWED_DRAWING_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg"}
+_ALLOWED_TEMPLATE_EXTENSIONS = {".pdf", ".txt", ".md"}
+_MAX_TEXT_TEMPLATE_BYTES = 256_000
 
 
 def _secure_html(content: str, *, status_code: int = 200) -> HTMLResponse:
@@ -79,7 +81,8 @@ def _report_form(session: str, settings: Settings) -> str:
 <label>Drawing or sketch (required)<input type="file" name="drawing" accept="application/pdf,image/png,image/jpeg" required></label>
 <small>PDF, PNG, JPG/JPEG. Max {max_mb} MB. Files are processed in memory and are not persisted by this MVP.</small>
 <label>Site notes (required)<textarea name="site_notes" rows="8" maxlength="16000" required placeholder="Only record facts you actually observed or were supplied."></textarea></label>
-<label>Company report template (optional PDF)<input type="file" name="template" accept="application/pdf"></label>
+<label>Company report template (optional)<input type="file" name="template" accept="application/pdf,text/plain,text/markdown,.txt,.md"></label>
+<small>PDF, TXT, or Markdown. Text templates are limited to {_MAX_TEXT_TEMPLATE_BYTES // 1000} KB.</small>
 <label>Engineering code / standard reference (optional)<input type="text" name="standard_reference" maxlength="1200" placeholder="Example: AS 3600 — reference only; BuildWise will not invent clauses"></label>
 <button type="submit">Generate draft professional report</button></form></div>
 <form method="post" action="/pro/logout"><input type="hidden" name="csrf" value="{escape(csrf)}"><button type="submit">Sign out</button></form>"""
@@ -93,21 +96,49 @@ def _list(items: list[str]) -> str:
 
 
 def _render_report(report: ProfessionalReport, used: int, limit: int) -> str:
-    sections = [
-        ("Project / document information", _list(report.project_document_information)),
-        ("Summary", f"<p>{escape(report.summary)}</p>"),
-        ("Observations", _list(report.observations)),
-        ("Drawing / sketch findings", _list(report.drawing_sketch_findings)),
-        ("Site-note findings", _list(report.site_note_findings)),
-        ("Relevant technical considerations", _list(report.relevant_technical_considerations)),
-        ("Referenced code / standard", _list(report.referenced_code_standard)),
-        ("Recommendations", _list(report.recommendations)),
-        ("Limitations / assumptions", _list(report.limitations_assumptions)),
-        ("Uncertainties / missing information", _list(report.uncertainties_missing_information)),
-        ("Review / sign-off", f"<p>{escape(report.review_signoff)}</p>"),
-    ]
-    body = '<div class="notice"><strong>DRAFT — PROFESSIONAL REVIEW REQUIRED</strong><br>' + escape(report.professional_review_notice) + "</div>"
+    if report.template_structure_used and report.template_sections:
+        sections = [
+            (section.heading, _list(section.content)) for section in report.template_sections
+        ]
+        sections.extend(
+            [
+                ("Limitations / assumptions", _list(report.limitations_assumptions)),
+                (
+                    "Uncertainties / missing information",
+                    _list(report.uncertainties_missing_information),
+                ),
+                ("Review / sign-off", f"<p>{escape(report.review_signoff)}</p>"),
+            ]
+        )
+    else:
+        sections = [
+            ("Project / document information", _list(report.project_document_information)),
+            ("Summary", f"<p>{escape(report.summary)}</p>"),
+            ("Observations", _list(report.observations)),
+            ("Drawing / sketch findings", _list(report.drawing_sketch_findings)),
+            ("Site-note findings", _list(report.site_note_findings)),
+            (
+                "Relevant technical considerations",
+                _list(report.relevant_technical_considerations),
+            ),
+            ("Referenced code / standard", _list(report.referenced_code_standard)),
+            ("Recommendations", _list(report.recommendations)),
+            ("Limitations / assumptions", _list(report.limitations_assumptions)),
+            (
+                "Uncertainties / missing information",
+                _list(report.uncertainties_missing_information),
+            ),
+            ("Review / sign-off", f"<p>{escape(report.review_signoff)}</p>"),
+        ]
+
+    body = (
+        '<div class="notice"><strong>DRAFT — PROFESSIONAL REVIEW REQUIRED</strong><br>'
+        + escape(report.professional_review_notice)
+        + "</div>"
+    )
     body += f'<p class="muted">Preview usage: {used} / {limit}. Template structure used: {"yes" if report.template_structure_used else "no"}.</p>'
+    if report.template_structure_used and not report.template_sections:
+        body += '<p class="notice">The template was supplied, but no reliable template headings could be mapped. The standard BuildWise Pro structure is shown instead.</p>'
     for heading, content in sections:
         body += f'<div class="card"><h2>{escape(heading)}</h2>{content}</div>'
     body += '<p><a href="/pro">Create another draft</a></p>'
@@ -117,9 +148,29 @@ def _render_report(report: ProfessionalReport, used: int, limit: int) -> str:
 def _detect_file_type(filename: str, data: bytes, *, template: bool = False) -> str:
     suffix = Path(filename).suffix.lower()
     if template:
-        if suffix != ".pdf" or not data.startswith(b"%PDF-"):
-            raise HTTPException(status_code=400, detail="Company template must be a valid PDF.")
-        return "application/pdf"
+        if suffix not in _ALLOWED_TEMPLATE_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail="Company template must be PDF, TXT, or Markdown.",
+            )
+        if suffix == ".pdf" and data.startswith(b"%PDF-"):
+            return "application/pdf"
+        if suffix in {".txt", ".md"}:
+            if len(data) > _MAX_TEXT_TEMPLATE_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="Text company template is too large.",
+                )
+            try:
+                data.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Text company template must be UTF-8 encoded.",
+                ) from exc
+            return "text/markdown" if suffix == ".md" else "text/plain"
+        raise HTTPException(status_code=400, detail="Company template content is invalid.")
+
     if suffix not in _ALLOWED_DRAWING_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Drawing must be PDF, PNG, JPG, or JPEG.")
     if suffix == ".pdf" and data.startswith(b"%PDF-"):
@@ -128,10 +179,15 @@ def _detect_file_type(filename: str, data: bytes, *, template: bool = False) -> 
         return "image/png"
     if suffix in {".jpg", ".jpeg"} and data.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
-    raise HTTPException(status_code=400, detail="File content does not match the permitted drawing type.")
+    raise HTTPException(
+        status_code=400,
+        detail="File content does not match the permitted drawing type.",
+    )
 
 
-async def _read_upload(upload: UploadFile, *, max_bytes: int, template: bool = False) -> ProFile:
+async def _read_upload(
+    upload: UploadFile, *, max_bytes: int, template: bool = False
+) -> ProFile:
     filename = (upload.filename or "").strip()
     if not filename:
         raise HTTPException(status_code=400, detail="A filename is required.")
@@ -140,7 +196,10 @@ async def _read_upload(upload: UploadFile, *, max_bytes: int, template: bool = F
     if not data:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
     if len(data) > max_bytes:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Uploaded file is too large.")
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Uploaded file is too large.",
+        )
     mime_type = _detect_file_type(filename, data, template=template)
     return ProFile(filename=Path(filename).name[:180], mime_type=mime_type, data=data)
 
@@ -162,7 +221,9 @@ def create_pro_router(settings: Settings) -> APIRouter:
     @router.post("/pro/login")
     async def pro_login(access_key: str = Form(...)) -> Response:
         if not access_key_matches(settings, access_key):
-            return _secure_html(_login_page("Invalid preview access key."), status_code=401)
+            return _secure_html(
+                _login_page("Invalid preview access key."), status_code=401
+            )
         session = issue_session(settings)
         response = RedirectResponse("/pro", status_code=status.HTTP_303_SEE_OTHER)
         response.set_cookie(
@@ -180,7 +241,9 @@ def create_pro_router(settings: Settings) -> APIRouter:
     @router.post("/pro/logout")
     async def pro_logout(request: Request, csrf: str = Form(...)) -> Response:
         session = request.cookies.get(SESSION_COOKIE)
-        if not validate_session(settings, session) or not csrf_matches(settings, session or "", csrf):
+        if not validate_session(settings, session) or not csrf_matches(
+            settings, session or "", csrf
+        ):
             raise HTTPException(status_code=403, detail="Invalid session or CSRF token.")
         response = RedirectResponse("/pro", status_code=status.HTTP_303_SEE_OTHER)
         response.delete_cookie(SESSION_COOKIE, path="/pro")
@@ -215,13 +278,18 @@ def create_pro_router(settings: Settings) -> APIRouter:
         drawing_file = await _read_upload(drawing, max_bytes=max_bytes)
         template_file: ProFile | None = None
         if template is not None and (template.filename or "").strip():
-            template_file = await _read_upload(template, max_bytes=max_bytes, template=True)
+            template_file = await _read_upload(
+                template, max_bytes=max_bytes, template=True
+            )
 
         usage_date = date.today()
         limit = settings.buildwise_pro_daily_request_limit
         allowed, used = await limiter.reserve(subject, usage_date, limit)
         if not allowed:
-            raise HTTPException(status_code=429, detail="BuildWise Pro preview daily limit reached.")
+            raise HTTPException(
+                status_code=429,
+                detail="BuildWise Pro preview daily limit reached.",
+            )
         try:
             report = await service.generate_professional_report(
                 request=report_request,
