@@ -41,10 +41,12 @@ class Settings(BaseSettings):
 
     admin_username: str = Field(default="", validation_alias="ADMIN_USERNAME")
     admin_password: SecretStr | None = Field(default=None, validation_alias="ADMIN_PASSWORD")
+    admin_telegram_ids_raw: str = Field(
+        default="", validation_alias="BUILDWISE_ADMIN_TELEGRAM_IDS"
+    )
 
-    # BuildWise Pro is disabled until explicitly enabled in a reviewed environment.
+    # BuildWise Pro remains a restricted beta until explicitly opened in a reviewed release.
     buildwise_pro_enabled: bool = Field(default=False, validation_alias="BUILDWISE_PRO_ENABLED")
-    # Keep the browser preview independently disabled in production Telegram deployments.
     buildwise_pro_web_enabled: bool = Field(
         default=False, validation_alias="BUILDWISE_PRO_WEB_ENABLED"
     )
@@ -137,6 +139,36 @@ class Settings(BaseSettings):
             raise ValueError("TELEGRAM_WEBHOOK_BASE_URL must begin with https://")
         return cleaned
 
+    @field_validator("buildwise_pro_allowed_telegram_ids_raw")
+    @classmethod
+    def validate_pro_beta_allowlist(cls, raw: str) -> str:
+        cleaned = raw.strip()
+        if not cleaned:
+            return ""
+        values: set[int] = set()
+        for raw_value in raw.split(","):
+            value = raw_value.strip()
+            if not value:
+                raise ValueError(
+                    "BUILDWISE_PRO_ALLOWED_TELEGRAM_IDS contains an empty Telegram ID"
+                )
+            try:
+                parsed = int(value)
+            except ValueError as exc:
+                raise ValueError(
+                    "BUILDWISE_PRO_ALLOWED_TELEGRAM_IDS must contain numeric Telegram IDs"
+                ) from exc
+            if parsed <= 0:
+                raise ValueError(
+                    "BUILDWISE_PRO_ALLOWED_TELEGRAM_IDS must contain positive Telegram IDs"
+                )
+            values.add(parsed)
+        if len(values) > 10:
+            raise ValueError(
+                "BUILDWISE_PRO_ALLOWED_TELEGRAM_IDS supports a maximum of 10 unique Telegram IDs"
+            )
+        return ",".join(str(value) for value in sorted(values))
+
     @staticmethod
     def _parse_id_list(raw: str, variable: str) -> frozenset[int]:
         if not raw.strip():
@@ -145,7 +177,7 @@ class Settings(BaseSettings):
         for raw_value in raw.split(","):
             value = raw_value.strip()
             if not value:
-                continue
+                raise ValueError(f"{variable} contains an empty Telegram ID")
             try:
                 parsed = int(value)
             except ValueError as exc:
@@ -158,6 +190,13 @@ class Settings(BaseSettings):
     @property
     def allowed_user_ids(self) -> frozenset[int]:
         return self._parse_id_list(self.allowed_user_ids_raw, "ALLOWED_USER_IDS")
+
+    @property
+    def admin_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(
+            self.admin_telegram_ids_raw,
+            "BUILDWISE_ADMIN_TELEGRAM_IDS",
+        )
 
     @property
     def buildwise_pro_allowed_telegram_ids(self) -> frozenset[int]:
