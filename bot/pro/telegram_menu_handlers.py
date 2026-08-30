@@ -35,7 +35,10 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
         invalid = MessageHandler(filters.ALL & ~filters.COMMAND, self.invalid_step)
         cancel_button = CallbackQueryHandler(self.cancel_callback, pattern=r"^pro:cancel$")
         conversation = ConversationHandler(
-            entry_points=[CommandHandler("pro", self.start)],
+            entry_points=[
+                CommandHandler("pro", self.start),
+                CallbackQueryHandler(self.start_from_button, pattern=r"^nav:pro$"),
+            ],
             states={
                 INTRO: [
                     CallbackQueryHandler(self.begin_report, pattern=r"^pro:intro:start$"),
@@ -83,6 +86,14 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
         )
         application.add_handler(conversation)
         application.add_handler(CommandHandler("pro_cancel", self.cancel))
+
+    async def start_from_button(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> int:
+        query = update.callback_query
+        if query is not None:
+            await query.answer()
+        return await self.start(update, context)
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         message = update.effective_message
