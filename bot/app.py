@@ -8,8 +8,9 @@ from telegram.ext import Application
 
 from bot.config import Settings
 from bot.handlers.bot_handlers import BotHandlers
+from bot.handlers.navigation_bot_handlers import NavigationBotHandlers
+from bot.handlers.navigation_handlers import NavigationHandlers, NavigationSupportHandlers
 from bot.handlers.referral_handlers import ReferralHandlers
-from bot.handlers.support_handlers import SupportHandlers
 from bot.pro.telegram_beta_handlers import TelegramProBetaHandlers
 from bot.router import RequestRouter
 from bot.services.admin_service import AdminService
@@ -33,25 +34,27 @@ class BuildWiseComponents:
 def build_components(settings: Settings) -> BuildWiseComponents:
     database = RewardAwareSupabaseService(settings)
     reminders = ReminderService(database)
-    handlers = BotHandlers(
+    handlers = NavigationBotHandlers(
         settings,
         RewardAwareOpenAIService(settings, database),  # type: ignore[arg-type]
         RequestRouter(),
         database,
         reminders,
     )
-    support_handlers = SupportHandlers(database, AdminService(settings))
+    support_handlers = NavigationSupportHandlers(database, AdminService(settings))
     referral_handlers = ReferralHandlers(ReferralService(settings), handlers)
     pro_handlers = TelegramProBetaHandlers(settings)
+    navigation_handlers = NavigationHandlers(handlers, pro_handlers)
     telegram = (
         Application.builder()
         .token(settings.telegram_bot_token.get_secret_value())
         .build()
     )
-    # Referral/support commands are registered first. Pro beta utilities and report workflow
-    # are then registered before the student catch-all. Existing student handlers remain unchanged.
+    # Referral/support commands are registered first. Pro and navigation callbacks are then
+    # registered before the student catch-all so buttons route into existing workflows safely.
     referral_handlers.register(telegram)
     support_handlers.register(telegram)
     pro_handlers.register(telegram)
+    navigation_handlers.register(telegram)
     handlers.register(telegram)
     return BuildWiseComponents(telegram, handlers, database, reminders)
