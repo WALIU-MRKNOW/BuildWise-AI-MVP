@@ -76,11 +76,12 @@ class ProBetaAnalyticsService:
     ) -> None:
         if status not in {"success", "failed"}:
             raise ValueError("Invalid Pro generation status")
+        now = datetime.now(timezone.utc).isoformat()
         payload: dict[str, Any] = {
             "generation_status": status,
             "generation_latency_ms": max(0, int(latency_ms)),
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": now,
+            "updated_at": now,
         }
         if pdf_success is not None:
             payload["pdf_success"] = bool(pdf_success)
@@ -101,11 +102,27 @@ class ProBetaAnalyticsService:
             prefer="return=minimal",
         )
 
+    async def _assert_session_owner(self, *, session_id: UUID, telegram_id: int) -> None:
+        response = await self._request(
+            "GET",
+            "/rest/v1/pro_beta_reports",
+            params={
+                "select": "session_id",
+                "session_id": f"eq.{session_id}",
+                "telegram_id": f"eq.{telegram_id}",
+                "limit": "1",
+            },
+        )
+        rows = response.json()
+        if not isinstance(rows, list) or not rows:
+            raise ProBetaAnalyticsError("Feedback session is not available for this tester")
+
     async def add_rating(
         self, *, session_id: UUID, telegram_id: int, rating: str
     ) -> None:
         if rating not in {"helpful", "needs_improvement"}:
             raise ValueError("Invalid feedback rating")
+        await self._assert_session_owner(session_id=session_id, telegram_id=telegram_id)
         await self._request(
             "POST",
             "/rest/v1/pro_beta_feedback",
@@ -123,6 +140,7 @@ class ProBetaAnalyticsService:
         cleaned = text.strip()
         if not 1 <= len(cleaned) <= 1500:
             raise ValueError("Feedback must be between 1 and 1,500 characters")
+        await self._assert_session_owner(session_id=session_id, telegram_id=telegram_id)
         await self._request(
             "POST",
             "/rest/v1/pro_beta_feedback",
