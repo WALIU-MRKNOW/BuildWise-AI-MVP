@@ -28,6 +28,11 @@ from bot.pro.telegram_handlers import (
 )
 
 INTRO = 6
+_SITE_NOTE_MIME_TYPES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/plain",
+}
 
 
 class TelegramProMenuHandlers(TelegramProDocumentHandlers):
@@ -58,6 +63,7 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
                     invalid,
                 ],
                 NOTES: [
+                    MessageHandler(filters.Document.ALL, self.site_notes_file),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.site_notes),
                     invalid,
                 ],
@@ -118,7 +124,7 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
         await message.reply_text(
             "🧰 BUILDWISE PRO\n"
             "Professional Report Generator\n\n"
-            "Analyze project information, drawings/sketches or project documents and turn the supplied evidence into a structured draft professional report.\n\n"
+            "Analyze project information, drawings/sketches, project documents and site-note files, then turn the supplied evidence into a structured draft professional report.\n\n"
             "Uploads supported in Pro: PDF, DOCX, TXT, PNG, JPG/JPEG.\n\n"
             "⚠️ DRAFT ENGINEERING ASSISTANCE ONLY\n"
             "Professional review is required before real-world use.",
@@ -218,7 +224,7 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
             "✅ Project source accepted for analysis.\n\n"
             "BuildWise Pro will analyze the supplied evidence for explicit project/document details, headings and structure, tables or listed data, observations, stated recommendations, contradictions, gaps and uncertainties. It will not invent missing engineering facts or treat uploaded claims as independently verified.\n\n"
             "Step 3 of 6 — Site notes\n\n"
-            "Send factual site observations or notes you want considered alongside the uploaded source. BuildWise treats these as user-provided evidence, not independently verified facts."
+            "Type factual site observations OR upload one PDF, DOCX or TXT site-notes file. BuildWise will analyze uploaded site notes alongside the project source as user-provided evidence, not independently verified facts."
         )
         return NOTES
 
@@ -240,31 +246,100 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
             )
         return DRAWING
 
+    async def _prompt_template(self, message) -> None:
+        await message.reply_text(
+            "Step 4 of 6 — Company template\n\n"
+            "Upload an optional PDF, DOCX, TXT, or Markdown company report template, or continue without one.",
+            reply_markup=_buttons(
+                ("Continue without template", "pro:template:skip"),
+                ("Cancel", "pro:cancel"),
+            ),
+        )
+
     async def site_notes(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         message = update.effective_message
         text = (message.text or "").strip() if message else ""
         if len(text) < 3:
             if message:
                 await message.reply_text(
-                    "Please provide factual site observations or notes before continuing."
+                    "Please type factual site observations or upload a PDF, DOCX or TXT site-notes file."
                 )
             return NOTES
         if len(text) > 16000:
             if message:
                 await message.reply_text(
-                    "Site notes are too long for this beta. Keep them under 16,000 characters."
+                    "Site notes are too long for this beta. Keep typed notes under 16,000 characters or upload a supported site-notes file."
                 )
             return NOTES
         self._state(context)["site_notes"] = text
         if message:
+            await self._prompt_template(message)
+        return TEMPLATE
+
+    async def site_notes_file(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> int:
+        """Accept PDF/DOCX/TXT site notes as a secondary Pro analysis source."""
+        message = update.effective_message
+        if message is None or message.document is None:
+            return NOTES
+
+        document = message.document
+        filename = document.file_name or "site-notes"
+        max_bytes = self._settings.buildwise_pro_max_file_size_bytes
+        if document.file_size is not None and document.file_size > max_bytes:
             await message.reply_text(
-                "Step 4 of 6 — Company template\n\n"
-                "Upload an optional PDF, DOCX, TXT, or Markdown company report template, or continue without one.",
-                reply_markup=_buttons(
-                    ("Continue without template", "pro:template:skip"),
-                    ("Cancel", "pro:cancel"),
-                ),
+                f"That site-notes file is too large. BuildWise Pro allows up to {self._settings.buildwise_pro_max_file_size_mb} MB."
             )
+            return NOTES
+
+        data = await self._download(context, document.file_id)
+        if len(data) > max_bytes:
+            await message.reply_text(
+                f"That site-notes file is too large. BuildWise Pro allows up to {self._settings.buildwise_pro_max_file_size_mb} MB."
+            )
+            return NOTES
+
+        try:
+            mime_type = detect_pro_file_type(filename, data)
+        except ProFileValidationError as exc:
+            await message.reply_text(str(exc))
+            return NOTES
+
+        if mime_type not in _SITE_NOTE_MIME_TYPES:
+            await message.reply_text(
+                "Site notes must be uploaded as PDF, DOCX or TXT. Images remain supported as the primary project/drawing source."
+            )
+            return NOTES
+
+        state = self._state(context)
+        primary_source = state.get("drawing")
+        if not isinstance(primary_source, ProFile):
+            await message.reply_text(
+                "The primary project source is missing. Start the Pro workflow again with /pro."
+            )
+            return NOTES
+
+        site_notes_source = ProFile(
+            filename=filename[:180], mime_type=mime_type, data=data
+        )
+        state["drawing"] = ProFile(
+            filename=primary_source.filename,
+            mime_type=primary_source.mime_type,
+            data=primary_source.data,
+            attachments=primary_source.attachments + (site_notes_source,),
+        )
+        state["site_notes"] = (
+            f"Site observations are supplied in uploaded file '{filename[:180]}'. Analyze that attached "
+            "site-notes source as user-provided evidence alongside the primary project source. Do not "
+            "treat its claims as independently verified and do not invent missing observations."
+        )
+
+        await message.reply_text(
+            "✅ Site notes file accepted for analysis.\n\n"
+            "BuildWise Pro will analyze its explicit observations, headings, tables/listed data, stated concerns, actions, contradictions, gaps and uncertainties alongside the primary project source. It will not merely read the file back or treat its claims as independently verified."
+        )
+        await self._prompt_template(message)
         return TEMPLATE
 
     async def how_it_works(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -276,7 +351,7 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
             "🧰 BuildWise Pro — How It Works\n\n"
             "1️⃣ Type project information OR upload a project source for analysis\n"
             "2️⃣ If you typed project information, upload a PDF, DOCX, TXT, PNG, JPG/JPEG source\n"
-            "3️⃣ Add factual site notes\n"
+            "3️⃣ Type site notes OR upload a PDF, DOCX or TXT site-notes file for analysis\n"
             "4️⃣ Optionally upload a company template (PDF, DOCX, TXT, or Markdown)\n"
             "5️⃣ Optionally add a standard/code name for context\n"
             "6️⃣ Confirm and generate the draft\n\n"
