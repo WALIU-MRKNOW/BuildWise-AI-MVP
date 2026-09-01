@@ -47,6 +47,7 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
                     invalid,
                 ],
                 PROJECT: [
+                    MessageHandler(filters.PHOTO | filters.Document.ALL, self.project_source_direct),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.project_information),
                     invalid,
                 ],
@@ -115,7 +116,7 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
         await message.reply_text(
             "🧰 BUILDWISE PRO\n"
             "Professional Report Generator\n\n"
-            "Create a structured draft professional report from project information, drawings/sketches or project documents, factual site observations, and optional supporting material.\n\n"
+            "Analyze project information, drawings/sketches or project documents and turn the supplied evidence into a structured draft professional report.\n\n"
             "Uploads supported in Pro: PDF, DOCX, TXT, PNG, JPG/JPEG.\n\n"
             "⚠️ DRAFT ENGINEERING ASSISTANCE ONLY\n"
             "Professional review is required before real-world use.",
@@ -133,16 +134,41 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
             return INTRO
         await query.answer()
         await query.edit_message_text(
-            "Step 1 of 6 — Project information\n\n"
-            "Send the project/report information you want identified in the draft. Include only what is relevant, for example:\n"
-            "• project title/name\n"
-            "• location\n"
-            "• document/report title\n"
-            "• client/company\n"
-            "• inspection/date information\n\n"
+            "Step 1 of 6 — Project information / project source\n\n"
+            "Choose either option:\n\n"
+            "A) Type the project/report information, such as project name, location, report title, client/company and date.\n\n"
+            "B) Upload a PDF, DOCX, TXT, PNG or JPG/JPEG project document now. BuildWise Pro will treat it as a source to ANALYZE — not merely read — and will extract only details that are explicitly supported by the file.\n\n"
+            "If you upload the project source here, BuildWise will use it as the primary project document and move directly to factual site notes.\n\n"
             "Use /pro_cancel at any time to exit."
         )
         return PROJECT
+
+    async def project_source_direct(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> int:
+        """Accept a project source at step one and analyze it without requiring duplicate typing."""
+        message = update.effective_message
+        if message is None:
+            return PROJECT
+
+        result = await self.drawing(update, context)
+        if result != NOTES:
+            # Base validation returns DRAWING on an invalid upload. Keep the user at
+            # step one because they chose the direct project-source path.
+            return PROJECT
+
+        filename = "uploaded project source"
+        if message.document and message.document.file_name:
+            filename = message.document.file_name[:180]
+        elif message.photo:
+            filename = "Telegram project image"
+
+        self._state(context)["project_information"] = (
+            f"No separate project information was typed. Analyze '{filename}' and extract only "
+            "project/document identifiers that are explicitly present in the uploaded source. "
+            "Do not infer missing names, dates, locations, parties, dimensions, or engineering facts."
+        )
+        return NOTES
 
     async def project_information(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         message = update.effective_message
@@ -158,7 +184,7 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
             await message.reply_text(
                 "Step 2 of 6 — Drawing / project document\n\n"
                 "Upload one PDF, DOCX, TXT, PNG, JPG/JPEG drawing, sketch, or project document. "
-                "BuildWise validates the filename and file content before processing."
+                "BuildWise will validate it and analyze the supplied content as evidence for the draft report."
             )
         return DRAWING
 
@@ -196,12 +222,13 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
         await query.answer()
         await query.edit_message_text(
             "🧰 BuildWise Pro — How It Works\n\n"
-            "1️⃣ Project information\n"
-            "2️⃣ Upload a PDF, DOCX, TXT, PNG, JPG/JPEG drawing, sketch, or project document\n"
+            "1️⃣ Type project information OR upload a project source for analysis\n"
+            "2️⃣ If you typed project information, upload a PDF, DOCX, TXT, PNG, JPG/JPEG source\n"
             "3️⃣ Add factual site notes\n"
             "4️⃣ Optionally upload a company template (PDF, DOCX, TXT, or Markdown)\n"
             "5️⃣ Optionally add a standard/code name for context\n"
             "6️⃣ Confirm and generate the draft\n\n"
+            "BuildWise analyzes supplied source content for explicit project facts, observations, document structure, tables, recommendations, gaps and uncertainties. It must not invent unsupported engineering information.\n\n"
             "You receive PDF + DOCX when available, with HTML fallback if document rendering fails.\n\n"
             "⚠️ DRAFT ENGINEERING ASSISTANCE ONLY — professional review is required before real-world use.",
             reply_markup=_buttons(
