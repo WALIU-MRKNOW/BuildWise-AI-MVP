@@ -140,10 +140,54 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
             "• document/report title\n"
             "• client/company\n"
             "• inspection/date information\n\n"
-            "At the upload step BuildWise Pro accepts PDF, DOCX, TXT, PNG, JPG/JPEG.\n\n"
             "Use /pro_cancel at any time to exit."
         )
         return PROJECT
+
+    async def project_information(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        message = update.effective_message
+        text = (message.text or "").strip() if message else ""
+        if len(text) < 2 or len(text) > 2000:
+            if message:
+                await message.reply_text(
+                    "Send concise project information between 2 and 2,000 characters."
+                )
+            return PROJECT
+        self._state(context)["project_information"] = text
+        if message:
+            await message.reply_text(
+                "Step 2 of 6 — Drawing / project document\n\n"
+                "Upload one PDF, DOCX, TXT, PNG, JPG/JPEG drawing, sketch, or project document. "
+                "BuildWise validates the filename and file content before processing."
+            )
+        return DRAWING
+
+    async def site_notes(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        message = update.effective_message
+        text = (message.text or "").strip() if message else ""
+        if len(text) < 3:
+            if message:
+                await message.reply_text(
+                    "Please provide factual site observations or notes before continuing."
+                )
+            return NOTES
+        if len(text) > 16000:
+            if message:
+                await message.reply_text(
+                    "Site notes are too long for this beta. Keep them under 16,000 characters."
+                )
+            return NOTES
+        self._state(context)["site_notes"] = text
+        if message:
+            await message.reply_text(
+                "Step 4 of 6 — Company template\n\n"
+                "Upload an optional PDF, DOCX, TXT, or Markdown company report template, or continue without one.",
+                reply_markup=_buttons(
+                    ("Continue without template", "pro:template:skip"),
+                    ("Cancel", "pro:cancel"),
+                ),
+            )
+        return TEMPLATE
 
     async def how_it_works(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         query = update.callback_query
