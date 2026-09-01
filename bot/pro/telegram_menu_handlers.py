@@ -13,6 +13,8 @@ from telegram.ext import (
     filters,
 )
 
+from bot.pro.ai_service import ProFile
+from bot.pro.files import ProFileValidationError, detect_pro_file_type
 from bot.pro.telegram_document_handlers import TelegramProDocumentHandlers
 from bot.pro.telegram_handlers import (
     CONFIRM,
@@ -146,15 +148,13 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
     async def project_source_direct(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
-        """Accept a project source at step one and analyze it without requiring duplicate typing."""
+        """Accept a project source at step one without requiring duplicate typed metadata."""
         message = update.effective_message
         if message is None:
             return PROJECT
 
         result = await self.drawing(update, context)
         if result != NOTES:
-            # Base validation returns DRAWING on an invalid upload. Keep the user at
-            # step one because they chose the direct project-source path.
             return PROJECT
 
         filename = "uploaded project source"
@@ -167,6 +167,58 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
             f"No separate project information was typed. Analyze '{filename}' and extract only "
             "project/document identifiers that are explicitly present in the uploaded source. "
             "Do not infer missing names, dates, locations, parties, dimensions, or engineering facts."
+        )
+        return NOTES
+
+    async def drawing(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Validate and retain one Pro source, then explicitly route it to report analysis."""
+        message = update.effective_message
+        if message is None:
+            return DRAWING
+
+        if message.photo:
+            photo = message.photo[-1]
+            filename = "telegram-project-image.jpg"
+            file_id = photo.file_id
+            declared_size = photo.file_size
+        elif message.document:
+            filename = message.document.file_name or "project-source"
+            file_id = message.document.file_id
+            declared_size = message.document.file_size
+        else:
+            await message.reply_text(
+                "Upload a PDF, DOCX, TXT, PNG, JPG or JPEG project source for analysis."
+            )
+            return DRAWING
+
+        max_bytes = self._settings.buildwise_pro_max_file_size_bytes
+        if declared_size is not None and declared_size > max_bytes:
+            await message.reply_text(
+                f"That file is too large. BuildWise Pro allows up to {self._settings.buildwise_pro_max_file_size_mb} MB."
+            )
+            return DRAWING
+
+        data = await self._download(context, file_id)
+        if len(data) > max_bytes:
+            await message.reply_text(
+                f"That file is too large. BuildWise Pro allows up to {self._settings.buildwise_pro_max_file_size_mb} MB."
+            )
+            return DRAWING
+
+        try:
+            mime_type = detect_pro_file_type(filename, data)
+        except ProFileValidationError as exc:
+            await message.reply_text(str(exc))
+            return DRAWING
+
+        self._state(context)["drawing"] = ProFile(
+            filename=filename[:180], mime_type=mime_type, data=data
+        )
+        await message.reply_text(
+            "✅ Project source accepted for analysis.\n\n"
+            "BuildWise Pro will analyze the supplied evidence for explicit project/document details, headings and structure, tables or listed data, observations, stated recommendations, contradictions, gaps and uncertainties. It will not invent missing engineering facts or treat uploaded claims as independently verified.\n\n"
+            "Step 3 of 6 — Site notes\n\n"
+            "Send factual site observations or notes you want considered alongside the uploaded source. BuildWise treats these as user-provided evidence, not independently verified facts."
         )
         return NOTES
 
