@@ -60,6 +60,9 @@ class BuildWiseProMenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, INTRO)
         self.assertIn(PRO_STATE_KEY, ctx.user_data)
         self.assertEqual(ctx.user_data["mode"], "study")
+        intro_text = msg.reply_text.await_args.args[0]
+        self.assertIn("🏠 Floor plan", intro_text)
+        self.assertIn("Architectural / engineering drawing", intro_text)
         kwargs = msg.reply_text.await_args.kwargs
         markup = kwargs["reply_markup"]
         labels = [row[0].text for row in markup.inline_keyboard]
@@ -75,14 +78,19 @@ class BuildWiseProMenuTests(unittest.IsolatedAsyncioTestCase):
         q = callback()
         result = await handlers.begin_report(update(query=q), context())
         self.assertEqual(result, PROJECT)
-        self.assertIn("Step 1 of 6", q.edit_message_text.await_args.args[0])
+        text = q.edit_message_text.await_args.args[0]
+        self.assertIn("Step 1 of 6", text)
+        self.assertIn("floor plan", text.lower())
+        self.assertIn("architectural/engineering drawing", text.lower())
 
     async def test_how_it_works_keeps_intro_and_shows_start_button(self) -> None:
         handlers = TelegramProMenuHandlers(settings())
         q = callback()
         result = await handlers.how_it_works(update(query=q), context())
         self.assertEqual(result, INTRO)
-        self.assertIn("PDF + DOCX", q.edit_message_text.await_args.args[0])
+        text = q.edit_message_text.await_args.args[0]
+        self.assertIn("PDF + DOCX", text)
+        self.assertIn("floor plan", text.lower())
         markup = q.edit_message_text.await_args.kwargs["reply_markup"]
         self.assertEqual(markup.inline_keyboard[0][0].callback_data, "pro:intro:start")
 
