@@ -60,7 +60,6 @@ class TelegramProBetaHandlers(TelegramProMenuHandlers):
     """Private Pro beta controls layered on the existing report workflow."""
 
     def __init__(self, settings) -> None:
-        # Hard validation runs at startup before Telegram handlers are registered.
         allowlist = validated_pro_allowlist(settings)
         super().__init__(settings)
         self._allowed_ids = allowlist
@@ -239,25 +238,89 @@ class TelegramProBetaHandlers(TelegramProMenuHandlers):
             html_name = f"BuildWise_Pro_Draft_Report_{safe_name}.html"
 
             outputs: list[tuple[bytes, str, str]] = []
-            pdf_success = False
-            docx_success = False
             render_errors: list[str] = []
             try:
                 outputs.append((render_report_pdf(report, project), pdf_name, "PDF"))
-                pdf_success = True
             except Exception:
                 logger.exception("BuildWise Pro PDF rendering failed user_id=%s", user.id)
                 render_errors.append("PDF")
             try:
                 outputs.append((render_report_docx(report, project), docx_name, "DOCX"))
-                docx_success = True
             except Exception:
                 logger.exception("BuildWise Pro DOCX rendering failed user_id=%s", user.id)
                 render_errors.append("DOCX")
             if render_errors:
-                outputs.append((render_report_html(report, project), html_name, "HTML fallback"))
+                try:
+                    outputs.append((render_report_html(report, project), html_name, "HTML fallback"))
+                except Exception:
+                    logger.exception("BuildWise Pro HTML fallback rendering failed user_id=%s", user.id)
+
+            if not outputs:
+                latency_ms = round((monotonic() - started) * 1000)
+                await self._limiter.refund(str(user.id), usage_date)
+                try:
+                    await self._analytics.record_generation(
+                        session_id=session_id,
+                        status="failed",
+                        latency_ms=latency_ms,
+                        pdf_success=False,
+                        docx_success=False,
+                    )
+                except ProBetaAnalyticsError:
+                    logger.warning("BuildWise Pro beta render failure metric unavailable user_id=%s", user.id)
+                await query.edit_message_text(
+                    "The draft was generated, but BuildWise could not create a downloadable file. "
+                    "Your Pro request was refunded; please try again."
+                )
+                context.user_data.pop(PRO_STATE_KEY, None)
+                return ConversationHandler.END
+
+            delivered_labels: list[str] = []
+            pdf_success = False
+            docx_success = False
+            if update.effective_chat:
+                for data, filename, label in outputs:
+                    try:
+                        await context.bot.send_document(
+                            chat_id=update.effective_chat.id,
+                            document=InputFile(BytesIO(data), filename=filename),
+                            caption=(
+                                f"BuildWise Pro {label} draft — professional review required before real-world use."
+                            ),
+                        )
+                    except Exception:
+                        logger.exception(
+                            "BuildWise Pro Telegram document delivery failed user_id=%s output=%s",
+                            user.id,
+                            label,
+                        )
+                        continue
+                    delivered_labels.append(label)
+                    if label == "PDF":
+                        pdf_success = True
+                    elif label == "DOCX":
+                        docx_success = True
 
             latency_ms = round((monotonic() - started) * 1000)
+            if not delivered_labels:
+                await self._limiter.refund(str(user.id), usage_date)
+                try:
+                    await self._analytics.record_generation(
+                        session_id=session_id,
+                        status="failed",
+                        latency_ms=latency_ms,
+                        pdf_success=False,
+                        docx_success=False,
+                    )
+                except ProBetaAnalyticsError:
+                    logger.warning("BuildWise Pro beta delivery failure metric unavailable user_id=%s", user.id)
+                await query.edit_message_text(
+                    "The draft was generated, but Telegram could not deliver a downloadable file. "
+                    "Your Pro request was refunded; please try again."
+                )
+                context.user_data.pop(PRO_STATE_KEY, None)
+                return ConversationHandler.END
+
             try:
                 await self._analytics.record_generation(
                     session_id=session_id,
@@ -272,26 +335,22 @@ class TelegramProBetaHandlers(TelegramProMenuHandlers):
             summary = report.summary.strip()
             if len(summary) > 900:
                 summary = summary[:897].rstrip() + "…"
-            available = " + ".join(label for _, _, label in outputs)
+            available = " + ".join(delivered_labels)
+            unavailable = [label for label in ("PDF", "DOCX") if label not in delivered_labels]
+            availability_note = (
+                ""
+                if not unavailable
+                else "\nSome requested formats were unavailable: " + ", ".join(unavailable) + "."
+            )
             await query.edit_message_text(
                 "✅ BuildWise Pro draft complete\n\n"
                 "⚠️ DRAFT ENGINEERING ASSISTANCE ONLY\n\n"
                 f"Summary: {summary}\n\n"
-                f"Files: {available}\n"
+                f"Files delivered: {available}{availability_note}\n"
                 "Every output includes limitations, uncertainties/missing information, and a professional review/sign-off section.\n\n"
                 "How was this draft?",
                 reply_markup=_feedback_markup(session_id),
             )
-
-            if update.effective_chat:
-                for data, filename, label in outputs:
-                    await context.bot.send_document(
-                        chat_id=update.effective_chat.id,
-                        document=InputFile(BytesIO(data), filename=filename),
-                        caption=(
-                            f"BuildWise Pro {label} draft — professional review required before real-world use."
-                        ),
-                    )
 
             logger.info(
                 "BuildWise Pro Telegram report generated user_id=%s drawing_type=%s template=%s standard_ref=%s pdf_success=%s docx_success=%s usage=%s/%s latency_ms=%s",
@@ -313,7 +372,6 @@ class TelegramProBetaHandlers(TelegramProMenuHandlers):
         user = update.effective_user
         if query is None or user is None:
             return
-        await query.answer()
         if user.id not in self._allowed_ids:
             await query.answer("BuildWise Pro beta access required.", show_alert=True)
             return
@@ -344,7 +402,6 @@ class TelegramProBetaHandlers(TelegramProMenuHandlers):
         user = update.effective_user
         if query is None or user is None:
             return ConversationHandler.END
-        await query.answer()
         if user.id not in self._allowed_ids:
             await query.answer("BuildWise Pro beta access required.", show_alert=True)
             return ConversationHandler.END
@@ -355,6 +412,7 @@ class TelegramProBetaHandlers(TelegramProMenuHandlers):
             await query.answer("Feedback reference is invalid.", show_alert=True)
             return ConversationHandler.END
         context.user_data[PRO_FEEDBACK_KEY] = str(session_id)
+        await query.answer()
         await query.message.reply_text(
             "Send a short BuildWise Pro beta comment (max 1,500 characters).\n\n"
             "Please do NOT paste confidential engineering/project information, drawings, site notes, report text, or secrets into feedback.\n\n"
