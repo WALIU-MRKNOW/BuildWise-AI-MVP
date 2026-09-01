@@ -124,7 +124,7 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
         await message.reply_text(
             "🧰 BUILDWISE PRO\n"
             "Professional Report Generator\n\n"
-            "Analyze project information, drawings/sketches, project documents and site-note files, then turn the supplied evidence into a structured draft professional report.\n\n"
+            "Analyze project information, floor plans, architectural/engineering drawings, sketches, project documents and site-note files, then turn the supplied evidence into a structured draft professional report.\n\n"
             "Uploads supported in Pro: PDF, DOCX, TXT, PNG, JPG/JPEG.\n\n"
             "⚠️ DRAFT ENGINEERING ASSISTANCE ONLY\n"
             "Professional review is required before real-world use.",
@@ -145,7 +145,7 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
             "Step 1 of 6 — Project information / project source\n\n"
             "Choose either option:\n\n"
             "A) Type the project/report information, such as project name, location, report title, client/company and date.\n\n"
-            "B) Upload a PDF, DOCX, TXT, PNG or JPG/JPEG project document now. BuildWise Pro will treat it as a source to ANALYZE — not merely read — and will extract only details that are explicitly supported by the file.\n\n"
+            "B) Upload your primary project evidence now. This can be a floor plan, architectural/engineering drawing, sketch, or project document in PDF, DOCX, TXT, PNG or JPG/JPEG format. BuildWise Pro will treat it as a source to ANALYZE — not merely read — and will extract only details that are explicitly supported by the file.\n\n"
             "If you upload the project source here, BuildWise will use it as the primary project document and move directly to factual site notes.\n\n"
             "Use /pro_cancel at any time to exit."
         )
@@ -193,7 +193,7 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
             declared_size = message.document.file_size
         else:
             await message.reply_text(
-                "Upload a PDF, DOCX, TXT, PNG, JPG or JPEG project source for analysis."
+                "Upload a floor plan, architectural/engineering drawing, sketch, or project document in PDF, DOCX, TXT, PNG, JPG or JPEG format for analysis."
             )
             return DRAWING
 
@@ -221,8 +221,8 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
             filename=filename[:180], mime_type=mime_type, data=data
         )
         await message.reply_text(
-            "✅ Project source accepted for analysis.\n\n"
-            "BuildWise Pro will analyze the supplied evidence for explicit project/document details, headings and structure, tables or listed data, observations, stated recommendations, contradictions, gaps and uncertainties. It will not invent missing engineering facts or treat uploaded claims as independently verified.\n\n"
+            "✅ Project source / floor plan accepted for analysis.\n\n"
+            "BuildWise Pro will analyze the supplied evidence for explicit project/document details, headings and structure, tables or listed data, visible/legible floor-plan or drawing information, observations, stated recommendations, contradictions, gaps and uncertainties. It will not invent missing engineering facts or treat uploaded claims as independently verified.\n\n"
             "Step 3 of 6 — Site notes\n\n"
             "Type factual site observations OR upload one PDF, DOCX or TXT site-notes file. BuildWise will analyze uploaded site notes alongside the project source as user-provided evidence, not independently verified facts."
         )
@@ -240,8 +240,8 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
         self._state(context)["project_information"] = text
         if message:
             await message.reply_text(
-                "Step 2 of 6 — Drawing / project document\n\n"
-                "Upload one PDF, DOCX, TXT, PNG, JPG/JPEG drawing, sketch, or project document. "
+                "Step 2 of 6 — Floor plan / drawing / project document\n\n"
+                "Upload your primary project evidence: a floor plan, architectural/engineering drawing, sketch, or project document. Supported formats are PDF, DOCX, TXT, PNG and JPG/JPEG. "
                 "BuildWise will validate it and analyze the supplied content as evidence for the draft report."
             )
         return DRAWING
@@ -308,7 +308,7 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
 
         if mime_type not in _SITE_NOTE_MIME_TYPES:
             await message.reply_text(
-                "Site notes must be uploaded as PDF, DOCX or TXT. Images remain supported as the primary project/drawing source."
+                "Site notes must be uploaded as PDF, DOCX or TXT. Images, floor plans and drawings remain supported as the primary project source."
             )
             return NOTES
 
@@ -349,13 +349,13 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
         await query.answer()
         await query.edit_message_text(
             "🧰 BuildWise Pro — How It Works\n\n"
-            "1️⃣ Type project information OR upload a project source for analysis\n"
-            "2️⃣ If you typed project information, upload a PDF, DOCX, TXT, PNG, JPG/JPEG source\n"
+            "1️⃣ Type project information OR upload your primary project evidence for analysis\n"
+            "2️⃣ Primary evidence can be a floor plan, architectural/engineering drawing, sketch, or project document (PDF, DOCX, TXT, PNG, JPG/JPEG)\n"
             "3️⃣ Type site notes OR upload a PDF, DOCX or TXT site-notes file for analysis\n"
             "4️⃣ Optionally upload a company template (PDF, DOCX, TXT, or Markdown)\n"
             "5️⃣ Optionally add a standard/code name for context\n"
             "6️⃣ Confirm and generate the draft\n\n"
-            "BuildWise analyzes supplied source content for explicit project facts, observations, document structure, tables, recommendations, gaps and uncertainties. It must not invent unsupported engineering information.\n\n"
+            "BuildWise analyzes supplied source content for explicit project facts, visible/legible floor-plan or drawing information, observations, document structure, tables, recommendations, gaps and uncertainties. It must not invent unsupported engineering information.\n\n"
             "You receive PDF + DOCX when available, with HTML fallback if document rendering fails.\n\n"
             "⚠️ DRAFT ENGINEERING ASSISTANCE ONLY — professional review is required before real-world use.",
             reply_markup=_buttons(
