@@ -115,7 +115,8 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
         await message.reply_text(
             "🧰 BUILDWISE PRO\n"
             "Professional Report Generator\n\n"
-            "Create a structured draft professional report from project information, drawings/sketches, factual site observations, and optional supporting material.\n\n"
+            "Create a structured draft professional report from project information, drawings/sketches or project documents, factual site observations, and optional supporting material.\n\n"
+            "Uploads supported in Pro: PDF, DOCX, TXT, PNG, JPG/JPEG.\n\n"
             "⚠️ DRAFT ENGINEERING ASSISTANCE ONLY\n"
             "Professional review is required before real-world use.",
             reply_markup=_buttons(
@@ -143,6 +144,51 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
         )
         return PROJECT
 
+    async def project_information(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        message = update.effective_message
+        text = (message.text or "").strip() if message else ""
+        if len(text) < 2 or len(text) > 2000:
+            if message:
+                await message.reply_text(
+                    "Send concise project information between 2 and 2,000 characters."
+                )
+            return PROJECT
+        self._state(context)["project_information"] = text
+        if message:
+            await message.reply_text(
+                "Step 2 of 6 — Drawing / project document\n\n"
+                "Upload one PDF, DOCX, TXT, PNG, JPG/JPEG drawing, sketch, or project document. "
+                "BuildWise validates the filename and file content before processing."
+            )
+        return DRAWING
+
+    async def site_notes(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        message = update.effective_message
+        text = (message.text or "").strip() if message else ""
+        if len(text) < 3:
+            if message:
+                await message.reply_text(
+                    "Please provide factual site observations or notes before continuing."
+                )
+            return NOTES
+        if len(text) > 16000:
+            if message:
+                await message.reply_text(
+                    "Site notes are too long for this beta. Keep them under 16,000 characters."
+                )
+            return NOTES
+        self._state(context)["site_notes"] = text
+        if message:
+            await message.reply_text(
+                "Step 4 of 6 — Company template\n\n"
+                "Upload an optional PDF, DOCX, TXT, or Markdown company report template, or continue without one.",
+                reply_markup=_buttons(
+                    ("Continue without template", "pro:template:skip"),
+                    ("Cancel", "pro:cancel"),
+                ),
+            )
+        return TEMPLATE
+
     async def how_it_works(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         query = update.callback_query
         if query is None:
@@ -151,9 +197,9 @@ class TelegramProMenuHandlers(TelegramProDocumentHandlers):
         await query.edit_message_text(
             "🧰 BuildWise Pro — How It Works\n\n"
             "1️⃣ Project information\n"
-            "2️⃣ Upload a PDF, PNG, JPG/JPEG drawing or sketch\n"
+            "2️⃣ Upload a PDF, DOCX, TXT, PNG, JPG/JPEG drawing, sketch, or project document\n"
             "3️⃣ Add factual site notes\n"
-            "4️⃣ Optionally upload a company template\n"
+            "4️⃣ Optionally upload a company template (PDF, DOCX, TXT, or Markdown)\n"
             "5️⃣ Optionally add a standard/code name for context\n"
             "6️⃣ Confirm and generate the draft\n\n"
             "You receive PDF + DOCX when available, with HTML fallback if document rendering fails.\n\n"
