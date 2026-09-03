@@ -61,13 +61,14 @@ class BuildWiseProMenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(PRO_STATE_KEY, ctx.user_data)
         self.assertEqual(ctx.user_data["mode"], "study")
         intro_text = msg.reply_text.await_args.args[0]
-        self.assertIn("🏠 Floor plan", intro_text)
-        self.assertIn("Architectural / engineering drawing", intro_text)
+        self.assertIn("Floor plan", intro_text)
+        self.assertIn("Architectural or engineering drawing", intro_text)
+        self.assertNotIn("🚀", intro_text)
         kwargs = msg.reply_text.await_args.kwargs
         markup = kwargs["reply_markup"]
         labels = [row[0].text for row in markup.inline_keyboard]
         callbacks = [row[0].callback_data for row in markup.inline_keyboard]
-        self.assertEqual(labels, ["▶️ Start Pro Report", "ℹ️ How It Works", "✖️ Cancel"])
+        self.assertEqual(labels, ["Start report", "How it works", "Cancel"])
         self.assertEqual(
             callbacks,
             ["pro:intro:start", "pro:intro:how", "pro:cancel"],
@@ -82,6 +83,7 @@ class BuildWiseProMenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Step 1 of 6", text)
         self.assertIn("floor plan", text.lower())
         self.assertIn("architectural/engineering drawing", text.lower())
+        self.assertIn("analyzes the file as evidence", text.lower())
 
     async def test_how_it_works_keeps_intro_and_shows_start_button(self) -> None:
         handlers = TelegramProMenuHandlers(settings())
@@ -91,7 +93,9 @@ class BuildWiseProMenuTests(unittest.IsolatedAsyncioTestCase):
         text = q.edit_message_text.await_args.args[0]
         self.assertIn("PDF + DOCX", text)
         self.assertIn("floor plan", text.lower())
+        self.assertIn("professional review", text.lower())
         markup = q.edit_message_text.await_args.kwargs["reply_markup"]
+        self.assertEqual(markup.inline_keyboard[0][0].text, "Start report")
         self.assertEqual(markup.inline_keyboard[0][0].callback_data, "pro:intro:start")
 
     async def test_disabled_and_unauthorized_still_blocked(self) -> None:
