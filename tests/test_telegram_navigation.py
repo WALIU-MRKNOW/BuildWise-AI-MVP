@@ -48,12 +48,12 @@ class NavigationKeyboardTests(unittest.TestCase):
             admin_access=False,
         )
         labels = [button.text for row in markup.inline_keyboard for button in row]
-        self.assertIn("🎓 Ask BuildWise", labels)
-        self.assertIn("🆔 My Telegram ID", labels)
-        self.assertIn("🛟 Support", labels)
-        self.assertNotIn("🧰 BuildWise Pro", labels)
-        self.assertNotIn("📊 Pro Status", labels)
-        self.assertNotIn("📈 Pro Beta Stats", labels)
+        self.assertIn("Ask BuildWise", labels)
+        self.assertIn("My ID", labels)
+        self.assertIn("Support", labels)
+        self.assertNotIn("BuildWise Pro", labels)
+        self.assertNotIn("Pro Status", labels)
+        self.assertNotIn("Beta Stats", labels)
 
     def test_pro_and_admin_home_buttons_are_role_aware(self) -> None:
         pro_markup = navigation_home_keyboard(
@@ -62,9 +62,9 @@ class NavigationKeyboardTests(unittest.TestCase):
             admin_access=False,
         )
         pro_labels = [button.text for row in pro_markup.inline_keyboard for button in row]
-        self.assertIn("🧰 BuildWise Pro", pro_labels)
-        self.assertIn("📊 Pro Status", pro_labels)
-        self.assertNotIn("📈 Pro Beta Stats", pro_labels)
+        self.assertIn("BuildWise Pro", pro_labels)
+        self.assertIn("Pro Status", pro_labels)
+        self.assertNotIn("Beta Stats", pro_labels)
 
         admin_markup = navigation_home_keyboard(
             timezone_confirmed=True,
@@ -72,7 +72,7 @@ class NavigationKeyboardTests(unittest.TestCase):
             admin_access=True,
         )
         admin_labels = [button.text for row in admin_markup.inline_keyboard for button in row]
-        self.assertIn("📈 Pro Beta Stats", admin_labels)
+        self.assertIn("Beta Stats", admin_labels)
 
     def test_study_tools_menu_exposes_existing_student_controls(self) -> None:
         markup = study_tools_keyboard()
@@ -95,7 +95,7 @@ class ProNavigationEntryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, INTRO)
         update.callback_query.answer.assert_awaited_once()
-        self.assertIn("BUILDWISE PRO", update.effective_message.reply_text.await_args.args[0])
+        self.assertIn("BuildWise Pro", update.effective_message.reply_text.await_args.args[0])
 
 
 class NavigationUtilityTests(unittest.IsolatedAsyncioTestCase):
