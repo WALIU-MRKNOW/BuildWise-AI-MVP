@@ -113,7 +113,8 @@ class BuildWiseProDirectUploadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state["drawing"].mime_type, DOCX_MIME)
         self.assertIn("extract only", state["project_information"])
         response = message.reply_text.await_args.args[0]
-        self.assertIn("accepted for analysis", response)
+        self.assertIn("Project source accepted", response)
+        self.assertIn("analyze", response.lower())
         self.assertIn("tables", response)
         self.assertIn("gaps and uncertainties", response)
 
