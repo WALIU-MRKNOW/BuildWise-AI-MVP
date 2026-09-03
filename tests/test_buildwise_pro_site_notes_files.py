@@ -100,8 +100,8 @@ class BuildWiseProSiteNotesUploadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(primary.attachments[0].filename, filename)
         self.assertIn("Analyze that attached", state["site_notes"])
         first_reply = message.reply_text.await_args_list[0].args[0]
-        self.assertIn("Site notes accepted", first_reply)
-        self.assertIn("analyze", first_reply.lower())
+        self.assertIn("Site notes file accepted for analysis", first_reply)
+        self.assertIn("will not merely read", first_reply)
         self.assertIn("gaps and uncertainties", first_reply)
         final_reply = message.reply_text.await_args_list[-1].args[0]
         self.assertIn("Step 4 of 6", final_reply)
@@ -134,7 +134,7 @@ class BuildWiseProSiteNotesUploadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, NOTES)
         self.assertEqual(ctx.user_data[PRO_STATE_KEY]["drawing"].attachments, ())
         rejection = message.reply_text.await_args.args[0]
-        self.assertIn("Site notes must be PDF, DOCX or TXT", rejection)
+        self.assertIn("Site notes must be uploaded as PDF, DOCX or TXT", rejection)
         self.assertIn("primary project source", rejection)
 
 
