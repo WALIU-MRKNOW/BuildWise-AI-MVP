@@ -18,35 +18,35 @@ def navigation_home_keyboard(
 ) -> InlineKeyboardMarkup:
     """Build the home menu without exposing private controls to unauthorized users."""
     rows = [
-        [InlineKeyboardButton("Ask BuildWise", callback_data="home:study")],
+        [InlineKeyboardButton("🎓 Ask BuildWise", callback_data="home:study")],
         [
-            InlineKeyboardButton("Practice", callback_data="home:practice"),
-            InlineKeyboardButton("Analyze PDF", callback_data="home:pdf"),
+            InlineKeyboardButton("📝 Practice", callback_data="home:practice"),
+            InlineKeyboardButton("📄 Analyze PDF", callback_data="home:pdf"),
         ],
         [
-            InlineKeyboardButton("Image / Sketch", callback_data="home:sketch"),
-            InlineKeyboardButton("Building Photo", callback_data="home:building"),
+            InlineKeyboardButton("🖼 Sketch / Image", callback_data="home:sketch"),
+            InlineKeyboardButton("🏗 Building Photo", callback_data="home:building"),
         ],
-        [InlineKeyboardButton("Study Tools", callback_data="home:studytools")],
+        [InlineKeyboardButton("🎯 Study Tools", callback_data="home:studytools")],
         [
-            InlineKeyboardButton("Support", callback_data="nav:support"),
-            InlineKeyboardButton("My ID", callback_data="nav:myid"),
+            InlineKeyboardButton("🛟 Support", callback_data="nav:support"),
+            InlineKeyboardButton("🆔 My ID", callback_data="nav:myid"),
         ],
     ]
     if pro_access:
         rows.append(
             [
-                InlineKeyboardButton("BuildWise Pro", callback_data="nav:pro"),
-                InlineKeyboardButton("Pro Status", callback_data="nav:pro_status"),
+                InlineKeyboardButton("🏗 BuildWise Pro", callback_data="nav:pro"),
+                InlineKeyboardButton("📊 Pro Status", callback_data="nav:pro_status"),
             ]
         )
     if admin_access:
         rows.append(
-            [InlineKeyboardButton("Beta Stats", callback_data="nav:pro_beta_stats")]
+            [InlineKeyboardButton("📈 Beta Stats", callback_data="nav:pro_beta_stats")]
         )
     if not timezone_confirmed:
         rows.append(
-            [InlineKeyboardButton("Set timezone", callback_data="settings:timezone")]
+            [InlineKeyboardButton("🌍 Set timezone", callback_data="settings:timezone")]
         )
     return InlineKeyboardMarkup(rows)
 
@@ -55,15 +55,15 @@ def study_tools_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("History", callback_data="home:history"),
-                InlineKeyboardButton("Progress", callback_data="home:progress"),
+                InlineKeyboardButton("📂 History", callback_data="home:history"),
+                InlineKeyboardButton("📊 Progress", callback_data="home:progress"),
             ],
             [
-                InlineKeyboardButton("Daily Goal", callback_data="settings:goal"),
-                InlineKeyboardButton("Reminders", callback_data="settings:reminders"),
+                InlineKeyboardButton("🎯 Daily Goal", callback_data="settings:goal"),
+                InlineKeyboardButton("🔔 Reminders", callback_data="settings:reminders"),
             ],
-            [InlineKeyboardButton("Settings", callback_data="home:settings")],
-            [InlineKeyboardButton("Back to Home", callback_data="home:menu")],
+            [InlineKeyboardButton("⚙️ Settings", callback_data="home:settings")],
+            [InlineKeyboardButton("🏠 Back to Home", callback_data="home:menu")],
         ]
     )
 
@@ -99,10 +99,10 @@ class NavigationBotHandlers(BotHandlers):
         user = update.effective_user
         user_id = user.id if user is not None else None
         text = (
-            "BuildWise\n"
+            "🏠 BuildWise\n"
             "Study, analyze and work with project material.\n\n"
-            f"Today: {stats.completed_today} / {stats.daily_target}  •  "
-            f"Streak: {stats.current_streak} {streak_label}\n\n"
+            f"🎯 Today: {stats.completed_today} / {stats.daily_target}  •  "
+            f"🔥 Streak: {stats.current_streak} {streak_label}\n\n"
             "Choose an option below, or send a message, image, PDF or sketch directly."
         )
         await update.effective_message.reply_text(
@@ -127,12 +127,12 @@ class NavigationBotHandlers(BotHandlers):
         if action == "pdf":
             context.user_data["mode"] = "study"
             await update.effective_message.reply_text(
-                "Send the PDF you want analyzed. You can include a question or instruction with it."
+                "📄 Send the PDF you want analyzed. You can include a question or instruction with it."
             )
             return
         if action == "studytools":
             await update.effective_message.reply_text(
-                "Study tools\n\nChoose what you want to manage:",
+                "🎯 Study tools\n\nChoose what you want to manage:",
                 reply_markup=study_tools_keyboard(),
             )
             return
