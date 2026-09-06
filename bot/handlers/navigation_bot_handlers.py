@@ -5,6 +5,7 @@ from __future__ import annotations
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
+from bot.admin import admin_configuration_error
 from bot.domain import UserProfile
 from bot.handlers.bot_handlers import BotHandlers
 from bot.pro.beta_config import validated_admin_telegram_ids, validated_pro_allowlist
@@ -28,10 +29,7 @@ def navigation_home_keyboard(
             InlineKeyboardButton("🏗 Building Photo", callback_data="home:building"),
         ],
         [InlineKeyboardButton("🎯 Study Tools", callback_data="home:studytools")],
-        [
-            InlineKeyboardButton("🛟 Support", callback_data="nav:support"),
-            InlineKeyboardButton("🆔 My ID", callback_data="nav:myid"),
-        ],
+        [InlineKeyboardButton("🛟 Support", callback_data="nav:support")],
     ]
     if pro_access:
         rows.append(
@@ -113,7 +111,10 @@ class NavigationBotHandlers(BotHandlers):
                     self._settings.buildwise_pro_enabled
                     and user_id in self._pro_navigation_ids
                 ),
-                admin_access=user_id in self._admin_navigation_ids,
+                admin_access=(
+                    admin_configuration_error(self._settings) is None
+                    and user_id in self._admin_navigation_ids
+                ),
             ),
         )
 
