@@ -26,6 +26,14 @@ class AdminDashboardMotionTests(unittest.TestCase):
         self.assertIn("X-BuildWise-CSRF", html)
         self.assertIn("csrf-test", html)
 
+    def test_dashboard_contains_no_referral_ui(self) -> None:
+        html = _dashboard_html("csrf-test").lower()
+
+        self.assertNotIn("referral", html)
+        self.assertNotIn("referrer", html)
+        self.assertNotIn("reward credits", html)
+        self.assertNotIn("qualified referrals", html)
+
 
 if __name__ == "__main__":
     unittest.main()
