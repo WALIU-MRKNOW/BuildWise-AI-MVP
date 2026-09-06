@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import random
 import re
 from typing import Any
 
@@ -125,10 +126,12 @@ Topic: {topic}
 Difficulty: {difficulty}
 
 Return only one valid JSON object with this shape:
-{{"questions":[{{"question":"...","options":["...","...","...","..."],"correct_index":0,"explanation":"..."}}]}}
+{{"questions":[{{"question":"...","options":["...","...","...","..."],"correct_index":2,"explanation":"..."}}]}}
 
 Each question must have exactly four useful options. correct_index must be an
-integer from 0 to 3. Explanations must be short. Do not include Markdown fences.
+integer from 0 to 3. Vary the correct answer position across the quiz instead of
+repeatedly placing it in the same option. Explanations must be short. Do not
+include Markdown fences.
 """.strip()
         try:
             response = await self._client.responses.create(
@@ -157,7 +160,7 @@ integer from 0 to 3. Explanations must be short. Do not include Markdown fences.
             raise AIServiceError(
                 "I could not create the requested number of quiz questions. Please try again."
             )
-        return questions
+        return self._balance_quiz_answers(questions)
 
     @staticmethod
     def _parse_json(text: str) -> dict[str, Any]:
@@ -199,6 +202,30 @@ integer from 0 to 3. Explanations must be short. Do not include Markdown fences.
             correct_index=correct_index,
             explanation=explanation,
         )
+
+    @staticmethod
+    def _balance_quiz_answers(questions: list[QuizQuestion]) -> list[QuizQuestion]:
+        """Spread correct answers across A-D while preserving question accuracy."""
+        if len(questions) <= 1:
+            return questions
+
+        target_positions = [index % 4 for index in range(len(questions))]
+        random.SystemRandom().shuffle(target_positions)
+        balanced: list[QuizQuestion] = []
+
+        for question, target_index in zip(questions, target_positions, strict=True):
+            options = list(question.options)
+            correct_answer = options.pop(question.correct_index)
+            options.insert(target_index, correct_answer)
+            balanced.append(
+                QuizQuestion(
+                    question=question.question,
+                    options=(options[0], options[1], options[2], options[3]),
+                    correct_index=target_index,
+                    explanation=question.explanation,
+                )
+            )
+        return balanced
 
     @staticmethod
     def _translate_error(exc: OpenAIError) -> AIServiceError:
