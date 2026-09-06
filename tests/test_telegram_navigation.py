@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+import os
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
-from telegram.ext import ConversationHandler
+from pydantic import SecretStr
+from telegram.ext import CommandHandler, ConversationHandler
 
 from bot.config import Settings
-from bot.handlers.navigation_bot_handlers import navigation_home_keyboard, study_tools_keyboard
+from bot.app import build_components
+from bot.handlers.navigation_bot_handlers import NavigationBotHandlers, navigation_home_keyboard, study_tools_keyboard
 from bot.handlers.navigation_handlers import NavigationHandlers, NavigationSupportHandlers
 from bot.pro.telegram_menu_handlers import INTRO, TelegramProMenuHandlers
 
@@ -49,7 +52,7 @@ class NavigationKeyboardTests(unittest.TestCase):
         )
         labels = [button.text for row in markup.inline_keyboard for button in row]
         self.assertIn("🎓 Ask BuildWise", labels)
-        self.assertIn("🆔 My ID", labels)
+        self.assertNotIn("🆔 My ID", labels)
         self.assertIn("🛟 Support", labels)
         self.assertNotIn("🏗 BuildWise Pro", labels)
         self.assertNotIn("📊 Pro Status", labels)
@@ -83,6 +86,67 @@ class NavigationKeyboardTests(unittest.TestCase):
         self.assertIn("settings:reminders", callbacks)
         self.assertIn("home:settings", callbacks)
         self.assertIn("home:menu", callbacks)
+
+
+class HomeRoleIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_home_uses_telegram_identity_and_access_configuration(self) -> None:
+        student_callbacks = {
+            "home:study", "home:practice", "home:pdf", "home:sketch",
+            "home:building", "home:studytools", "nav:support",
+        }
+        cases = [
+            ("student", 30, True, "10", "20", True, False, False),
+            ("tester", 10, True, "10", "20", True, True, False),
+            ("admin only", 20, True, "10", "20", True, False, True),
+            ("tester and admin", 10, True, "10", "10", True, True, True),
+            ("disabled beta", 10, False, "10", "10", True, False, True),
+            ("empty allowlist", 10, True, "", "", True, False, False),
+            ("unconfigured admin", 20, True, "10", "20", False, False, False),
+            ("missing identity", None, True, "10", "20", True, False, False),
+        ]
+        for name, user_id, enabled, allowed, admins, configured, pro, admin in cases:
+            for timezone_confirmed in (True, False):
+                with self.subTest(role=name, timezone_confirmed=timezone_confirmed):
+                    config = settings(allowed=allowed, enabled=enabled).model_copy(update={
+                        "admin_username": "admin" if configured else "",
+                    })
+                    config = config.model_copy(update={
+                        "admin_password": SecretStr("test-admin-password-only") if configured else None,
+                    })
+                    database = SimpleNamespace(get_dashboard=AsyncMock(return_value=SimpleNamespace(
+                        current_streak=1, completed_today=2, daily_target=5,
+                    )))
+                    with patch.dict(os.environ, {"BUILDWISE_ADMIN_TELEGRAM_IDS": admins}):
+                        handler = NavigationBotHandlers(config, None, None, database, None)
+                    update = callback_update("home:menu", user_id=user_id)
+                    if user_id is None:
+                        update.effective_user = None
+                    # Profile identity must never confer Telegram role privileges.
+                    profile = SimpleNamespace(timezone_confirmed=timezone_confirmed, telegram_id=10)
+                    await handler._show_home(update, profile)
+                    markup = update.effective_message.reply_text.await_args.kwargs["reply_markup"]
+                    callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
+                    expected = set(student_callbacks)
+                    if pro:
+                        expected.update({"nav:pro", "nav:pro_status"})
+                    if admin:
+                        expected.add("nav:pro_beta_stats")
+                    if not timezone_confirmed:
+                        expected.add("settings:timezone")
+                    self.assertCountEqual(callbacks, expected)
+
+    async def test_myid_command_remains_registered_for_students_with_beta_disabled(self) -> None:
+        with patch.dict(os.environ, {"BUILDWISE_ADMIN_TELEGRAM_IDS": ""}):
+            components = build_components(settings(allowed="", enabled=False))
+        commands = [
+            handler for group in components.telegram.handlers.values() for handler in group
+            if isinstance(handler, CommandHandler) and "myid" in handler.commands
+        ]
+        self.assertEqual(len(commands), 1)
+        self.assertIsInstance(components.handlers, NavigationBotHandlers)
+        update = callback_update("", user_id=30)
+        await commands[0].callback(update, SimpleNamespace(user_data={}))
+        self.assertIn("Your Telegram ID: 30", update.effective_message.reply_text.await_args.args[0])
 
 
 class ProNavigationEntryTests(unittest.IsolatedAsyncioTestCase):
