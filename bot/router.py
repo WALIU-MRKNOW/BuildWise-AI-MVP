@@ -56,6 +56,15 @@ class RequestRouter:
 
         if self._matches(searchable, self._STRONG_SKETCH_PATTERNS):
             return RoutingDecision(Mode.SKETCH, "explicit drawing keywords")
+
+        # Text-only technical questions should be treated as study requests even when
+        # they contain construction nouns such as beam, concrete, structure, or
+        # foundation. Previously those nouns won the routing decision first and sent
+        # structural calculations into building-photo analysis, which can return no
+        # usable answer when no image is attached.
+        if normalized and not has_image and self._matches(searchable, self._STUDY_PATTERNS):
+            return RoutingDecision(Mode.STUDY, "text study/calculation keywords")
+
         if self._matches(searchable, self._BUILDING_PATTERNS):
             return RoutingDecision(Mode.BUILDING, "building keywords")
         if self._matches(searchable, self._SKETCH_PATTERNS):
