@@ -15,7 +15,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from bot.formatting import clean_student_math
-from bot.study_experience import StudyRequestKind, strip_learning_marker
+from bot.study_experience import StudyRequestKind, infer_study_answer_kind
 
 
 _SYMBOL_REPLACEMENTS = {
@@ -72,7 +72,7 @@ def _is_heading(line: str) -> bool:
 def render_student_solution_pdf(question: str, answer: str) -> bytes:
     """Render the latest BuildWise student answer as a clean A4 PDF in memory."""
 
-    kind, body = strip_learning_marker(answer)
+    kind, body = infer_study_answer_kind(answer)
     body = clean_student_math(body)
     is_calculation = kind is StudyRequestKind.CALCULATION
     title = "BuildWise AI - Worked Solution" if is_calculation else "BuildWise AI - Study Notes"
