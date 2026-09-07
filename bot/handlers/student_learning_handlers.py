@@ -9,7 +9,7 @@ from telegram.ext import Application, CallbackQueryHandler, ContextTypes
 
 from bot.domain import Mode
 from bot.student_solution_pdf import render_student_solution_pdf
-from bot.study_experience import StudyRequestKind, strip_learning_marker
+from bot.study_experience import StudyRequestKind, infer_study_answer_kind
 
 
 class StudentLearningHandlers:
@@ -40,7 +40,7 @@ class StudentLearningHandlers:
             return
 
         pdf_bytes = render_student_solution_pdf(question, answer)
-        kind, _ = strip_learning_marker(answer)
+        kind, _ = infer_study_answer_kind(answer)
         filename = (
             "BuildWise_Worked_Solution.pdf"
             if kind is StudyRequestKind.CALCULATION
