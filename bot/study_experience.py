@@ -55,7 +55,7 @@ def detect_study_request_kind(text: str) -> StudyRequestKind:
 
 
 def strip_learning_marker(text: str) -> tuple[StudyRequestKind | None, str]:
-    """Remove the model's hidden presentation marker from a study answer."""
+    """Remove a legacy presentation marker if one is returned by the model."""
 
     cleaned = text.strip()
     upper = cleaned.upper()
@@ -63,4 +63,35 @@ def strip_learning_marker(text: str) -> tuple[StudyRequestKind | None, str]:
         return StudyRequestKind.CALCULATION, cleaned[len("[[CALCULATION]]") :].lstrip()
     if upper.startswith("[[TOPIC]]"):
         return StudyRequestKind.TOPIC, cleaned[len("[[TOPIC]]") :].lstrip()
+    return None, cleaned
+
+
+def infer_study_answer_kind(text: str) -> tuple[StudyRequestKind | None, str]:
+    """Infer the answer type from its teaching sections while keeping history clean."""
+
+    marker_kind, cleaned = strip_learning_marker(text)
+    if marker_kind is not None:
+        return marker_kind, cleaned
+
+    normalized = cleaned.lower()
+    calculation_signals = (
+        "given data",
+        "formula / principle",
+        "why this formula",
+        "substitution",
+        "step-by-step working",
+        "final answer",
+    )
+    topic_signals = (
+        "meaning",
+        "key points",
+        "construction example",
+        "exam / study tip",
+    )
+    calc_score = sum(signal in normalized for signal in calculation_signals)
+    topic_score = sum(signal in normalized for signal in topic_signals)
+    if calc_score >= 2 and calc_score > topic_score:
+        return StudyRequestKind.CALCULATION, cleaned
+    if topic_score >= 2:
+        return StudyRequestKind.TOPIC, cleaned
     return None, cleaned
