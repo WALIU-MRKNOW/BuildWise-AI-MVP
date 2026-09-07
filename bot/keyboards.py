@@ -30,12 +30,13 @@ def follow_up_keyboard(mode: Mode) -> InlineKeyboardMarkup:
     if mode is Mode.STUDY:
         return InlineKeyboardMarkup(
             [
+                [InlineKeyboardButton("📄 Get Solution PDF", callback_data="followup:pdf")],
                 [
                     InlineKeyboardButton("Show Steps", callback_data="followup:steps"),
-                    InlineKeyboardButton("Explain Simpler", callback_data="followup:simpler"),
+                    InlineKeyboardButton("Explain More Simply", callback_data="followup:simpler"),
                 ],
                 [
-                    InlineKeyboardButton("Similar Question", callback_data="followup:similar"),
+                    InlineKeyboardButton("Practice Similar Question", callback_data="followup:similar"),
                     InlineKeyboardButton("Check My Answer", callback_data="followup:check"),
                 ],
                 [

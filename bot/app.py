@@ -11,6 +11,7 @@ from bot.handlers.bot_handlers import BotHandlers
 from bot.handlers.navigation_bot_handlers import NavigationBotHandlers
 from bot.handlers.navigation_handlers import NavigationHandlers, NavigationSupportHandlers
 from bot.handlers.referral_handlers import ReferralHandlers
+from bot.handlers.student_learning_handlers import StudentLearningHandlers
 from bot.pro.telegram_beta_handlers import TelegramProBetaHandlers
 from bot.router import RequestRouter
 from bot.services.admin_service import AdminService
@@ -43,6 +44,7 @@ def build_components(settings: Settings) -> BuildWiseComponents:
     )
     support_handlers = NavigationSupportHandlers(database, AdminService(settings))
     referral_handlers = ReferralHandlers(ReferralService(settings), handlers)
+    student_learning_handlers = StudentLearningHandlers()
     pro_handlers = TelegramProBetaHandlers(settings)
     navigation_handlers = NavigationHandlers(handlers, pro_handlers)
     telegram = (
@@ -50,11 +52,12 @@ def build_components(settings: Settings) -> BuildWiseComponents:
         .token(settings.telegram_bot_token.get_secret_value())
         .build()
     )
-    # Referral/support commands are registered first. Pro and navigation callbacks are then
-    # registered before the student catch-all so buttons route into existing workflows safely.
+    # Specific referral/support/Pro/navigation/student-learning callbacks are
+    # registered before the student catch-all so existing workflows remain isolated.
     referral_handlers.register(telegram)
     support_handlers.register(telegram)
     pro_handlers.register(telegram)
     navigation_handlers.register(telegram)
+    student_learning_handlers.register(telegram)
     handlers.register(telegram)
     return BuildWiseComponents(telegram, handlers, database, reminders)

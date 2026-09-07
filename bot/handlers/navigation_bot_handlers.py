@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from bot.domain import UserProfile
+from bot.domain import Mode, UserProfile
 from bot.handlers.bot_handlers import BotHandlers
 from bot.pro.beta_config import validated_admin_telegram_ids, validated_pro_allowlist
+from bot.study_experience import StudyRequestKind, detect_study_request_kind
+
+
+_current_study_request_kind: ContextVar[StudyRequestKind] = ContextVar(
+    "buildwise_study_request_kind", default=StudyRequestKind.TOPIC
+)
 
 
 def navigation_home_keyboard(
@@ -92,6 +100,59 @@ class NavigationBotHandlers(BotHandlers):
             if command.command not in existing:
                 commands.append(command)
         await application.bot.set_my_commands(commands)
+
+    async def handle_message(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        message = update.effective_message
+        text = (message.text or message.caption or "") if message is not None else ""
+        token = _current_study_request_kind.set(detect_study_request_kind(text))
+        try:
+            await super().handle_message(update, context)
+        finally:
+            _current_study_request_kind.reset(token)
+
+    async def solve(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        text = " ".join(context.args).strip()
+        token = _current_study_request_kind.set(detect_study_request_kind(text))
+        try:
+            await super().solve(update, context)
+        finally:
+            _current_study_request_kind.reset(token)
+
+    async def study(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        text = " ".join(context.args).strip()
+        token = _current_study_request_kind.set(detect_study_request_kind(text))
+        try:
+            await super().study(update, context)
+        finally:
+            _current_study_request_kind.reset(token)
+
+    async def _handle_followup(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        profile: UserProfile,
+        action: str,
+    ) -> None:
+        last = await self._last_context(context, profile)
+        question = last[1] if last else ""
+        token = _current_study_request_kind.set(detect_study_request_kind(question))
+        try:
+            await super()._handle_followup(update, context, profile, action)
+        finally:
+            _current_study_request_kind.reset(token)
+
+    @staticmethod
+    def _loading_text(mode: Mode) -> str:
+        if mode is Mode.STUDY:
+            if _current_study_request_kind.get() is StudyRequestKind.CALCULATION:
+                return "🧮 Solving calculations..."
+            return "📚 Explaining topic..."
+        return {
+            Mode.BUILDING: "🔍 Analyzing your building photo...",
+            Mode.SKETCH: "📐 Reading your sketch...",
+        }[mode]
 
     async def _show_home(self, update: Update, profile: UserProfile) -> None:
         stats = await self._database.get_dashboard(profile)
