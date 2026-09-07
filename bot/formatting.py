@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from bot.domain import Mode
+from bot.study_experience import StudyRequestKind, strip_learning_marker
 
 
 TELEGRAM_SAFE_CHUNK = 3900
@@ -13,6 +14,11 @@ MODE_HEADERS = {
     Mode.STUDY: "📚 BUILDWISE · STUDY & SOLVE",
     Mode.SKETCH: "📐 BUILDWISE · SKETCH ANALYSIS",
     Mode.BUILDING: "🏗️ BUILDWISE · BUILDING ANALYSIS",
+}
+
+STUDY_HEADERS = {
+    StudyRequestKind.CALCULATION: "🧮 BUILDWISE · SOLVING CALCULATION",
+    StudyRequestKind.TOPIC: "📚 BUILDWISE · EXPLAINING TOPIC",
 }
 
 DISCLAIMERS = {
@@ -27,11 +33,59 @@ DISCLAIMERS = {
 }
 
 
+def clean_student_math(text: str) -> str:
+    """Turn common model LaTeX into readable Telegram text.
+
+    The model is instructed not to emit LaTeX, but this sanitizer prevents raw
+    commands from reaching students when a model response still contains them.
+    """
+
+    cleaned = text
+    cleaned = re.sub(r"\\text\{([^{}]*)\}", r"\1", cleaned)
+    cleaned = re.sub(r"\\mathrm\{([^{}]*)\}", r"\1", cleaned)
+    cleaned = re.sub(r"\\mathbf\{([^{}]*)\}", r"\1", cleaned)
+    cleaned = re.sub(r"\\frac\{([^{}]+)\}\{([^{}]+)\}", r"(\1)/(\2)", cleaned)
+    replacements = {
+        r"\times": "×",
+        r"\div": "÷",
+        r"\cdot": "·",
+        r"\approx": "≈",
+        r"\leq": "≤",
+        r"\geq": "≥",
+        r"\le": "≤",
+        r"\ge": "≥",
+        r"\sqrt": "√",
+        r"\%": "%",
+    }
+    for source, target in replacements.items():
+        cleaned = cleaned.replace(source, target)
+    cleaned = cleaned.replace(r"\[", "").replace(r"\]", "")
+    cleaned = cleaned.replace(r"\(", "").replace(r"\)", "")
+    cleaned = cleaned.replace("$$", "").replace("$", "")
+    cleaned = re.sub(r"\^\{2\}", "²", cleaned)
+    cleaned = re.sub(r"\^\{3\}", "³", cleaned)
+    cleaned = re.sub(r"\^2\b", "²", cleaned)
+    cleaned = re.sub(r"\^3\b", "³", cleaned)
+    cleaned = re.sub(r"\\(?:begin|end)\{[^{}]+\}", "", cleaned)
+    cleaned = re.sub(r"\\[A-Za-z]+", "", cleaned)
+    cleaned = cleaned.replace("{", "").replace("}", "")
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
 def format_response(mode: Mode, model_text: str) -> str:
-    cleaned = re.sub(r"\n{3,}", "\n\n", model_text.strip())
+    kind = None
+    cleaned = model_text.strip()
+    if mode is Mode.STUDY:
+        kind, cleaned = strip_learning_marker(cleaned)
+        cleaned = clean_student_math(cleaned)
+    else:
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     if not cleaned:
         cleaned = "I could not produce a useful answer. Please try a clearer request."
-    parts = [MODE_HEADERS[mode], cleaned]
+    header = STUDY_HEADERS.get(kind, MODE_HEADERS[mode]) if mode is Mode.STUDY else MODE_HEADERS[mode]
+    parts = [header, cleaned]
     if mode in DISCLAIMERS:
         parts.append(DISCLAIMERS[mode])
     return "\n\n".join(parts)
