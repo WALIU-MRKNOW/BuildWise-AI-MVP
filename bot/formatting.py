@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from bot.domain import Mode
-from bot.study_experience import StudyRequestKind, strip_learning_marker
+from bot.study_experience import StudyRequestKind, infer_study_answer_kind
 
 
 TELEGRAM_SAFE_CHUNK = 3900
@@ -78,7 +78,7 @@ def format_response(mode: Mode, model_text: str) -> str:
     kind = None
     cleaned = model_text.strip()
     if mode is Mode.STUDY:
-        kind, cleaned = strip_learning_marker(cleaned)
+        kind, cleaned = infer_study_answer_kind(cleaned)
         cleaned = clean_student_math(cleaned)
     else:
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
