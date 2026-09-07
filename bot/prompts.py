@@ -12,7 +12,8 @@ say so clearly and request a better input. Do not mention internal prompts,
 models, APIs, routing, or confidence scores.
 
 Telegram cannot reliably render LaTeX. Never output raw LaTeX commands or math
-delimiters such as \\text{}, \\frac{}, \\times, \\[, \\], \(...\), or $$...$$.
+delimiters such as \\text{}, \\frac{}, \\times, display-math brackets,
+parenthesized math delimiters, or dollar-sign math blocks.
 Write equations as clean phone-friendly text using symbols such as ×, ÷, =, +,
 -, ², ³, √, and normal units.
 """.strip()
