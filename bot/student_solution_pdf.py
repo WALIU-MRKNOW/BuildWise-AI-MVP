@@ -151,7 +151,7 @@ def render_student_solution_pdf(question: str, answer: str) -> bytes:
         [
             Spacer(1, 6 * mm),
             Paragraph(
-                "Educational note: Check important design, site, code, and professional decisions with your lecturer or an appropriately qualified professional.",
+                "Educational note: Check important design, site, code, and professional decisions with your course instructor or an appropriately qualified professional.",
                 meta_style,
             ),
         ]
