@@ -28,6 +28,7 @@ from bot.domain import (
     RequestPayload,
 )
 from bot.prompts import default_user_request, system_prompt
+from bot.study_experience import StudyRequestKind, detect_study_request_kind
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +90,23 @@ class OpenAIService:
                     }
                 )
         input_messages.append({"role": "user", "content": content})
-        style = (
-            "The student requested detail: include reasoning, full steps, and a short check."
-            if answer_style is AnswerStyle.DETAILED
-            else "Keep the response concise. Give the direct result first."
+
+        is_calculation = (
+            mode is Mode.STUDY
+            and detect_study_request_kind(user_text) is StudyRequestKind.CALCULATION
         )
+        if is_calculation:
+            style = (
+                "This is a student calculation. Always teach every meaningful step, "
+                "show formulas, units, substitution, working, final answer, and a short "
+                "learning check. Do not shorten the mathematical working even when the "
+                "student's saved answer style is concise."
+            )
+        elif answer_style is AnswerStyle.DETAILED:
+            style = "The student requested detail: include reasoning, full steps, and a short check."
+        else:
+            style = "Keep the response concise. Give the direct result first."
+
         logger.info(
             "OpenAI request mode=%s image=%s pdf=%s",
             mode.value,
