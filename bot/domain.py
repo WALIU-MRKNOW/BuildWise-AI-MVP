@@ -68,6 +68,9 @@ class UserProfile:
     follow_up_buttons: bool
     save_history: bool
     default_daily_goal: int
+    student_name: str | None = None
+    university: str | None = None
+    onboarding_completed: bool = True
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> "UserProfile":
@@ -87,6 +90,9 @@ class UserProfile:
             follow_up_buttons=bool(row.get("follow_up_buttons", True)),
             save_history=bool(row.get("save_history", True)),
             default_daily_goal=int(row.get("default_daily_goal", 5)),
+            student_name=row.get("student_name"),
+            university=row.get("university"),
+            onboarding_completed=bool(row.get("onboarding_completed", True)),
         )
 
 
