@@ -7,7 +7,15 @@ import logging
 from typing import Any
 
 from bot.config import Settings
-from bot.domain import AnswerStyle, ConversationTurn, Mode, QuizQuestion, RequestPayload, UsageStatus, UserProfile
+from bot.domain import (
+    AnswerStyle,
+    ConversationTurn,
+    Mode,
+    QuizQuestion,
+    RequestPayload,
+    UsageStatus,
+    UserProfile,
+)
 from bot.services.openai_service import OpenAIService
 from bot.services.supabase_service import SupabaseError, SupabaseService, local_date
 
@@ -18,15 +26,35 @@ _current_reservation: ContextVar[str | None] = ContextVar(
 
 
 class RewardAwareSupabaseService(SupabaseService):
-    """Use daily allowance first, then referral credits, with exact refunds."""
+    """Use tiered student allowances, then referral credits, with exact refunds."""
 
     async def consume_usage(self, profile: UserProfile, limit: int) -> UsageStatus:
+        # Founder/test accounts are deliberately uncapped for product stress-testing.
+        # This applies only to the public student experience; BuildWise Pro keeps
+        # its own independent limiter and allowlist.
+        if profile.telegram_id in self._settings.buildwise_founder_telegram_ids:
+            _current_reservation.set(None)
+            return UsageStatus(
+                allowed=True,
+                used=0,
+                limit=0,
+                reservation_id=None,
+                source="founder_unlimited",
+                bonus_credits_remaining=0,
+            )
+
+        effective_limit = limit
+        if profile.telegram_id in self._settings.buildwise_pilot_telegram_ids:
+            effective_limit = max(
+                limit, self._settings.buildwise_pilot_daily_request_limit
+            )
+
         rows = await self._rpc(
             "consume_usage_with_referral_credit",
             {
                 "p_user_id": profile.id,
                 "p_usage_date": local_date(profile.timezone).isoformat(),
-                "p_limit": limit,
+                "p_limit": effective_limit,
             },
         )
         row = rows[0] if isinstance(rows, list) else rows
