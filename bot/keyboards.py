@@ -31,6 +31,7 @@ def follow_up_keyboard(mode: Mode) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton("📄 Get Solution PDF", callback_data="followup:pdf")],
+                [InlineKeyboardButton("📋 COPY", callback_data="followup:copy")],
                 [
                     InlineKeyboardButton("Show Steps", callback_data="followup:steps"),
                     InlineKeyboardButton("Explain More Simply", callback_data="followup:simpler"),
@@ -47,6 +48,7 @@ def follow_up_keyboard(mode: Mode) -> InlineKeyboardMarkup:
         )
     return InlineKeyboardMarkup(
         [
+            [InlineKeyboardButton("📋 COPY", callback_data="followup:copy")],
             [
                 InlineKeyboardButton("More Detail", callback_data="followup:steps"),
                 InlineKeyboardButton("Explain Simpler", callback_data="followup:simpler"),
