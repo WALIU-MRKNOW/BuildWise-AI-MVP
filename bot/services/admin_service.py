@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -56,17 +55,6 @@ class AdminService:
         payload = response.json()
         return payload if isinstance(payload, list) else []
 
-    async def _count(self, table: str, filters: dict[str, str] | None = None) -> int:
-        params = {"select": "id", "limit": "1", **(filters or {})}
-        response = await self._request(
-            "GET", f"/rest/v1/{table}", params=params, prefer="count=exact"
-        )
-        content_range = response.headers.get("content-range", "0-0/0")
-        try:
-            return int(content_range.rsplit("/", 1)[1])
-        except (IndexError, ValueError):
-            return 0
-
     async def create_support_ticket(
         self,
         *,
@@ -103,95 +91,37 @@ class AdminService:
         thirty_days = (now - timedelta(days=30)).isoformat()
         today = now.date().isoformat()
 
-        referral_users = await self._rows(
+        users = await self._rows(
             "/rest/v1/users",
             params={
-                "select": "id,telegram_id,username,display_name,referral_code,referred_by,created_at,updated_at",
+                "select": "id,telegram_id,username,display_name,university,onboarding_completed,created_at,updated_at",
                 "order": "created_at.desc",
                 "limit": "10000",
             },
         )
-        referral_counts = Counter(
-            str(row["referred_by"])
-            for row in referral_users
-            if row.get("referred_by")
-        )
-        user_by_id = {str(row["id"]): row for row in referral_users}
-
-        reward_rows = await self._rows(
-            "/rest/v1/referral_rewards",
-            params={
-                "select": "id,referrer_user_id,referred_user_id,credits_awarded,qualified_at,created_at",
-                "order": "created_at.desc",
-                "limit": "1000",
-            },
-        )
-        balance_rows = await self._rows(
-            "/rest/v1/referral_credit_balances",
-            params={
-                "select": "user_id,available_credits,lifetime_earned,lifetime_spent,updated_at",
-                "limit": "10000",
-            },
-        )
-        balance_by_user = {str(row["user_id"]): row for row in balance_rows}
-        qualified_counts = Counter(str(row["referrer_user_id"]) for row in reward_rows)
-
-        top_referrers = []
-        for user_id, count in referral_counts.most_common(10):
-            user = user_by_id.get(user_id, {})
-            balance = balance_by_user.get(user_id, {})
-            top_referrers.append(
-                {
-                    "user_id": user_id,
-                    "display_name": user.get("display_name") or "Student",
-                    "username": user.get("username"),
-                    "telegram_id": user.get("telegram_id"),
-                    "referral_code": user.get("referral_code"),
-                    "referral_count": count,
-                    "qualified_referrals": qualified_counts.get(user_id, 0),
-                    "available_credits": int(balance.get("available_credits") or 0),
-                    "lifetime_earned": int(balance.get("lifetime_earned") or 0),
-                }
-            )
-
-        users = []
-        for row in referral_users[:30]:
-            user_id = str(row["id"])
-            balance = balance_by_user.get(user_id, {})
-            users.append(
-                {
-                    **row,
-                    "referral_count": referral_counts.get(user_id, 0),
-                    "qualified_referrals": qualified_counts.get(user_id, 0),
-                    "available_credits": int(balance.get("available_credits") or 0),
-                }
-            )
-
-        recent_rewards = []
-        for row in reward_rows[:50]:
-            referrer = user_by_id.get(str(row.get("referrer_user_id")), {})
-            referred = user_by_id.get(str(row.get("referred_user_id")), {})
-            recent_rewards.append(
-                {
-                    **row,
-                    "referrer_name": referrer.get("display_name") or "Student",
-                    "referrer_username": referrer.get("username"),
-                    "referred_name": referred.get("display_name") or "Student",
-                    "referred_username": referred.get("username"),
-                }
-            )
+        user_lookup = {str(row["id"]): row for row in users}
 
         recent_activity = await self._rows(
             "/rest/v1/conversations",
             params={
                 "select": "id,user_id,mode,category,message,created_at",
                 "order": "created_at.desc",
-                "limit": "30",
+                "limit": "100",
             },
         )
-        user_lookup: dict[str, dict[str, Any]] = {
-            str(row["id"]): row for row in referral_users
-        }
+        activity = []
+        for row in recent_activity:
+            user = user_lookup.get(str(row.get("user_id")), {})
+            activity.append(
+                {
+                    **row,
+                    "display_name": user.get("display_name") or "Student",
+                    "username": user.get("username"),
+                    "telegram_id": user.get("telegram_id"),
+                    "university": user.get("university"),
+                    "message": str(row.get("message") or "")[:300],
+                }
+            )
 
         mode_rows = await self._rows(
             "/rest/v1/conversations",
@@ -222,34 +152,20 @@ class AdminService:
                 "limit": "100",
             },
         )
-        active_rows = await self._rows(
-            "/rest/v1/conversations",
-            params={
-                "created_at": f"gte.{seven_days}",
-                "select": "user_id",
-                "limit": "10000",
-            },
-        )
 
-        activity = []
-        for row in recent_activity:
-            user = user_lookup.get(str(row.get("user_id")), {})
-            activity.append(
-                {
-                    **row,
-                    "display_name": user.get("display_name") or "Student",
-                    "username": user.get("username"),
-                    "telegram_id": user.get("telegram_id"),
-                    "message": str(row.get("message") or "")[:240],
-                }
-            )
+        # A user's row is touched on Telegram interaction by the existing upsert
+        # path, so updated_at gives a useful last-seen signal even when the user
+        # has disabled saved conversation history.
+        active_users_7d = {
+            str(row.get("id"))
+            for row in users
+            if row.get("updated_at") and str(row.get("updated_at")) >= seven_days
+        }
 
         return {
             "summary": {
-                "users": len(referral_users),
-                "active_users_7d": len(
-                    {str(row.get("user_id")) for row in active_rows if row.get("user_id")}
-                ),
+                "users": len(users),
+                "active_users_7d": len(active_users_7d),
                 "requests_today": sum(
                     int(row.get("request_count") or 0) for row in usage_rows
                 ),
@@ -257,21 +173,11 @@ class AdminService:
                 "open_tickets": sum(
                     1 for row in tickets if row.get("status") != "resolved"
                 ),
-                "referrals": sum(referral_counts.values()),
-                "qualified_referrals": len(reward_rows),
-                "reward_credits_issued": sum(
-                    int(row.get("credits_awarded") or 0) for row in reward_rows
-                ),
-                "reward_credits_available": sum(
-                    int(row.get("available_credits") or 0) for row in balance_rows
-                ),
             },
             "users": users,
             "recent_activity": activity,
             "mode_usage": mode_usage,
             "tickets": tickets,
-            "top_referrers": top_referrers,
-            "recent_rewards": recent_rewards,
             "generated_at": now.isoformat(),
         }
 
