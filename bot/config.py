@@ -42,6 +42,25 @@ class Settings(BaseSettings):
     admin_username: str = Field(default="", validation_alias="ADMIN_USERNAME")
     admin_password: SecretStr | None = Field(default=None, validation_alias="ADMIN_PASSWORD")
 
+    # General Telegram administration / student testing controls.
+    # The founder ID is not secret and is kept as the default so development
+    # stress-testing does not consume the public student allowance.
+    buildwise_founder_telegram_ids_raw: str = Field(
+        default="6901754599", validation_alias="BUILDWISE_FOUNDER_TELEGRAM_IDS"
+    )
+    buildwise_admin_telegram_ids_raw: str = Field(
+        default="6901754599", validation_alias="BUILDWISE_ADMIN_TELEGRAM_IDS"
+    )
+    buildwise_pilot_telegram_ids_raw: str = Field(
+        default="", validation_alias="BUILDWISE_PILOT_TELEGRAM_IDS"
+    )
+    buildwise_pilot_daily_request_limit: int = Field(
+        default=40,
+        ge=1,
+        le=1000,
+        validation_alias="BUILDWISE_PILOT_DAILY_REQUEST_LIMIT",
+    )
+
     # BuildWise Pro is disabled until explicitly enabled in a reviewed environment.
     buildwise_pro_enabled: bool = Field(default=False, validation_alias="BUILDWISE_PRO_ENABLED")
     # Keep the browser preview independently disabled in production Telegram deployments.
@@ -158,6 +177,27 @@ class Settings(BaseSettings):
     @property
     def allowed_user_ids(self) -> frozenset[int]:
         return self._parse_id_list(self.allowed_user_ids_raw, "ALLOWED_USER_IDS")
+
+    @property
+    def buildwise_founder_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(
+            self.buildwise_founder_telegram_ids_raw,
+            "BUILDWISE_FOUNDER_TELEGRAM_IDS",
+        )
+
+    @property
+    def buildwise_admin_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(
+            self.buildwise_admin_telegram_ids_raw,
+            "BUILDWISE_ADMIN_TELEGRAM_IDS",
+        )
+
+    @property
+    def buildwise_pilot_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(
+            self.buildwise_pilot_telegram_ids_raw,
+            "BUILDWISE_PILOT_TELEGRAM_IDS",
+        )
 
     @property
     def buildwise_pro_allowed_telegram_ids(self) -> frozenset[int]:
