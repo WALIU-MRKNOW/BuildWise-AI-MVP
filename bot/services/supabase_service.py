@@ -175,6 +175,52 @@ class SupabaseService:
             raise SupabaseError("User settings could not be updated")
         return UserProfile.from_row(rows[0])
 
+    async def complete_onboarding(
+        self,
+        user_id: str,
+        *,
+        student_name: str,
+        university: str,
+    ) -> UserProfile:
+        cleaned_name = " ".join(student_name.split())
+        cleaned_university = " ".join(university.split())
+        if not 2 <= len(cleaned_name) <= 100:
+            raise ValueError("Name must be between 2 and 100 characters.")
+        if not 2 <= len(cleaned_university) <= 160:
+            raise ValueError("Institution must be between 2 and 160 characters.")
+        return await self.update_user(
+            user_id,
+            {
+                "student_name": cleaned_name,
+                "university": cleaned_university,
+                "onboarding_completed": True,
+            },
+        )
+
+    async def record_activity_event(
+        self,
+        *,
+        user_id: str,
+        event_type: str,
+        mode: str | None = None,
+        detail: str | None = None,
+    ) -> None:
+        cleaned_type = " ".join(event_type.split())[:80]
+        cleaned_detail = " ".join(detail.split())[:500] if detail else None
+        if not cleaned_type:
+            raise ValueError("Activity event type cannot be blank")
+        await self._request(
+            "POST",
+            "/rest/v1/user_activity_events",
+            json={
+                "user_id": user_id,
+                "event_type": cleaned_type,
+                "mode": mode,
+                "detail": cleaned_detail,
+            },
+            headers={"Prefer": "return=minimal"},
+        )
+
     async def mark_timezone_prompted(self, user_id: str) -> None:
         await self.update_user(user_id, {"timezone_prompted": True})
 
