@@ -3,10 +3,9 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from bot.config import Settings
-from bot.domain import UserProfile
+from bot.domain import Mode, UserProfile
 from bot.handlers.navigation_bot_handlers import NavigationBotHandlers
 from bot.keyboards import follow_up_keyboard
-from bot.domain import Mode
 from bot.services.reward_usage_service import RewardAwareSupabaseService
 
 
@@ -38,14 +37,33 @@ def profile(telegram_id: int = 123, timezone: str = "Africa/Lagos") -> UserProfi
 
 
 class StudentAccessTierTests(unittest.IsolatedAsyncioTestCase):
-    async def test_founder_is_unlimited_and_does_not_call_usage_rpc(self) -> None:
+    async def test_founder_uses_high_tracked_limit(self) -> None:
         service = RewardAwareSupabaseService(test_settings())
-        service._rpc = AsyncMock()  # type: ignore[method-assign]
-        with patch.dict(os.environ, {"FOUNDER_TELEGRAM_IDS": "6901754599"}, clear=False):
+        service._rpc = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                {
+                    "allowed": True,
+                    "used": 101,
+                    "limit_value": 1000,
+                    "reservation_id": "00000000-0000-0000-0000-000000000099",
+                    "source": "daily",
+                    "bonus_credits_remaining": 0,
+                }
+            ]
+        )
+        with patch.dict(
+            os.environ,
+            {
+                "FOUNDER_TELEGRAM_IDS": "6901754599",
+                "FOUNDER_DAILY_AI_REQUEST_LIMIT": "1000",
+            },
+            clear=False,
+        ):
             usage = await service.consume_usage(profile(6901754599), 20)
         self.assertTrue(usage.allowed)
-        self.assertEqual(usage.source, "founder_unlimited")
-        service._rpc.assert_not_awaited()
+        self.assertEqual(usage.limit, 1000)
+        call = service._rpc.await_args
+        self.assertEqual(call.args[1]["p_limit"], 1000)
 
     async def test_pilot_uses_higher_limit(self) -> None:
         service = RewardAwareSupabaseService(test_settings())
