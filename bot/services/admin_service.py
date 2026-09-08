@@ -17,6 +17,21 @@ class AdminServiceError(RuntimeError):
     pass
 
 
+def _student_name(row: dict[str, Any]) -> str:
+    return str(row.get("student_name") or row.get("display_name") or "Student")
+
+
+def _student_identity(row: dict[str, Any]) -> str:
+    pieces = [_student_name(row)]
+    if row.get("university"):
+        pieces.append(str(row["university"]))
+    if row.get("username"):
+        pieces.append(f"@{row['username']}")
+    if row.get("telegram_id") is not None:
+        pieces.append(f"ID {row['telegram_id']}")
+    return " · ".join(pieces)
+
+
 class AdminService:
     """Uses the server secret directly; never instantiate this in browser code."""
 
@@ -106,7 +121,7 @@ class AdminService:
         referral_users = await self._rows(
             "/rest/v1/users",
             params={
-                "select": "id,telegram_id,username,display_name,referral_code,referred_by,created_at,updated_at",
+                "select": "id,telegram_id,username,display_name,student_name,university,onboarding_completed,referral_code,referred_by,created_at,updated_at",
                 "order": "created_at.desc",
                 "limit": "10000",
             },
@@ -143,7 +158,7 @@ class AdminService:
             top_referrers.append(
                 {
                     "user_id": user_id,
-                    "display_name": user.get("display_name") or "Student",
+                    "display_name": _student_name(user),
                     "username": user.get("username"),
                     "telegram_id": user.get("telegram_id"),
                     "referral_code": user.get("referral_code"),
@@ -154,13 +169,28 @@ class AdminService:
                 }
             )
 
+        # The admin dashboard receives the full current user list (up to the
+        # server-side safety cap), with every Telegram numeric ID visible even
+        # when a username exists.
         users = []
-        for row in referral_users[:30]:
+        for row in referral_users:
             user_id = str(row["id"])
             balance = balance_by_user.get(user_id, {})
+            raw_username = str(row.get("username") or "").strip()
+            telegram_id = row.get("telegram_id")
+            telegram_label = (
+                f"{raw_username} · ID {telegram_id}"
+                if raw_username
+                else None
+            )
+            display = _student_name(row)
+            if row.get("university"):
+                display = f"{display} · {row['university']}"
             users.append(
                 {
                     **row,
+                    "display_name": display,
+                    "username": telegram_label,
                     "referral_count": referral_counts.get(user_id, 0),
                     "qualified_referrals": qualified_counts.get(user_id, 0),
                     "available_credits": int(balance.get("available_credits") or 0),
@@ -174,9 +204,9 @@ class AdminService:
             recent_rewards.append(
                 {
                     **row,
-                    "referrer_name": referrer.get("display_name") or "Student",
+                    "referrer_name": _student_name(referrer),
                     "referrer_username": referrer.get("username"),
-                    "referred_name": referred.get("display_name") or "Student",
+                    "referred_name": _student_name(referred),
                     "referred_username": referred.get("username"),
                 }
             )
@@ -186,7 +216,7 @@ class AdminService:
             params={
                 "select": "id,user_id,mode,category,message,created_at",
                 "order": "created_at.desc",
-                "limit": "30",
+                "limit": "100",
             },
         )
         user_lookup: dict[str, dict[str, Any]] = {
@@ -237,10 +267,11 @@ class AdminService:
             activity.append(
                 {
                     **row,
-                    "display_name": user.get("display_name") or "Student",
+                    "display_name": _student_identity(user),
                     "username": user.get("username"),
                     "telegram_id": user.get("telegram_id"),
-                    "message": str(row.get("message") or "")[:240],
+                    "university": user.get("university"),
+                    "message": str(row.get("message") or "")[:500],
                 }
             )
 
