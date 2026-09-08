@@ -28,6 +28,30 @@ _current_reservation: ContextVar[str | None] = ContextVar(
 class RewardAwareSupabaseService(SupabaseService):
     """Use tiered student allowances, then referral credits, with exact refunds."""
 
+    async def complete_onboarding(
+        self, profile: UserProfile, *, display_name: str, university: str
+    ) -> UserProfile:
+        cleaned_name = " ".join(display_name.split()).strip()
+        cleaned_university = " ".join(university.split()).strip()
+        if not 2 <= len(cleaned_name) <= 80:
+            raise ValueError("Name must be between 2 and 80 characters.")
+        if not 2 <= len(cleaned_university) <= 160:
+            raise ValueError("University name must be between 2 and 160 characters.")
+        rows = await self._request(
+            "PATCH",
+            "/rest/v1/users",
+            params={"id": f"eq.{profile.id}"},
+            json={
+                "display_name": cleaned_name,
+                "university": cleaned_university,
+                "onboarding_completed": True,
+            },
+            headers={"Prefer": "return=representation"},
+        )
+        if not rows:
+            raise SupabaseError("Student onboarding could not be saved")
+        return UserProfile.from_row(rows[0])
+
     async def consume_usage(self, profile: UserProfile, limit: int) -> UsageStatus:
         # Founder/test accounts are deliberately uncapped for product stress-testing.
         # This applies only to the public student experience; BuildWise Pro keeps
