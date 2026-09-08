@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
+from datetime import datetime, timezone
 import logging
 from typing import Any
 
@@ -20,25 +21,56 @@ _current_reservation: ContextVar[str | None] = ContextVar(
 class RewardAwareSupabaseService(SupabaseService):
     """Use daily allowance first, then referral credits, with exact refunds."""
 
+    def _effective_student_limit(self, profile: UserProfile, normal_limit: int) -> int:
+        telegram_id = profile.telegram_id
+        if telegram_id in self._settings.founder_telegram_ids:
+            return max(normal_limit, self._settings.founder_daily_ai_request_limit)
+        if telegram_id in self._settings.pilot_telegram_ids:
+            return max(normal_limit, self._settings.pilot_daily_ai_request_limit)
+        return normal_limit
+
     async def consume_usage(self, profile: UserProfile, limit: int) -> UsageStatus:
+        effective_limit = self._effective_student_limit(profile, limit)
         rows = await self._rpc(
             "consume_usage_with_referral_credit",
             {
                 "p_user_id": profile.id,
                 "p_usage_date": local_date(profile.timezone).isoformat(),
-                "p_limit": limit,
+                "p_limit": effective_limit,
             },
         )
         row = rows[0] if isinstance(rows, list) else rows
         reservation_id = str(row["reservation_id"]) if row.get("reservation_id") else None
         _current_reservation.set(reservation_id)
+        source = row.get("source")
+        if profile.telegram_id in self._settings.founder_telegram_ids:
+            source = f"founder:{source or 'daily'}"
+        elif profile.telegram_id in self._settings.pilot_telegram_ids:
+            source = f"pilot:{source or 'daily'}"
         return UsageStatus(
             allowed=bool(row["allowed"]),
             used=int(row["used"]),
             limit=int(row["limit_value"]),
             reservation_id=reservation_id,
-            source=row.get("source"),
+            source=source,
             bonus_credits_remaining=int(row.get("bonus_credits_remaining") or 0),
+        )
+
+    async def complete_onboarding(
+        self,
+        profile: UserProfile,
+        *,
+        student_name: str,
+        university: str,
+    ) -> UserProfile:
+        return await self.update_user(
+            profile.id,
+            {
+                "student_name": student_name.strip(),
+                "university": university.strip(),
+                "onboarding_completed": True,
+                "onboarding_completed_at": datetime.now(timezone.utc).isoformat(),
+            },
         )
 
     async def refund_usage(self, profile: UserProfile) -> None:
