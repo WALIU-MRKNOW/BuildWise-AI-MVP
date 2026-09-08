@@ -84,7 +84,10 @@ class UserProfile:
             timezone_confirmed=bool(row.get("timezone_confirmed", False)),
             timezone_prompted=bool(row.get("timezone_prompted", False)),
             answer_style=style,
-            follow_up_buttons=bool(row.get("follow_up_buttons", True)),
+            # Follow-up actions are now part of the standard BuildWise learning
+            # experience, so legacy users who previously disabled the preference
+            # still receive COPY, PDF, explain, practice, save, and other actions.
+            follow_up_buttons=True,
             save_history=bool(row.get("save_history", True)),
             default_daily_goal=int(row.get("default_daily_goal", 5)),
         )
