@@ -40,6 +40,17 @@ def _parse_telegram_ids(raw: str, variable: str) -> frozenset[int]:
     return frozenset(values)
 
 
+def _configured_daily_limit(variable: str, default: int, normal_limit: int) -> int:
+    raw = os.getenv(variable, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{variable} must be an integer") from exc
+    if value < 1 or value > 10000:
+        raise ValueError(f"{variable} must be between 1 and 10000")
+    return max(normal_limit, value)
+
+
 def founder_telegram_ids() -> frozenset[int]:
     return _parse_telegram_ids(os.getenv("FOUNDER_TELEGRAM_IDS", ""), "FOUNDER_TELEGRAM_IDS")
 
@@ -48,15 +59,12 @@ def pilot_telegram_ids() -> frozenset[int]:
     return _parse_telegram_ids(os.getenv("PILOT_TELEGRAM_IDS", ""), "PILOT_TELEGRAM_IDS")
 
 
+def founder_daily_limit(normal_limit: int) -> int:
+    return _configured_daily_limit("FOUNDER_DAILY_AI_REQUEST_LIMIT", 1000, normal_limit)
+
+
 def pilot_daily_limit(normal_limit: int) -> int:
-    raw = os.getenv("PILOT_DAILY_AI_REQUEST_LIMIT", "40").strip()
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ValueError("PILOT_DAILY_AI_REQUEST_LIMIT must be an integer") from exc
-    if value < 1 or value > 1000:
-        raise ValueError("PILOT_DAILY_AI_REQUEST_LIMIT must be between 1 and 1000")
-    return max(normal_limit, value)
+    return _configured_daily_limit("PILOT_DAILY_AI_REQUEST_LIMIT", 40, normal_limit)
 
 
 class RewardAwareSupabaseService(SupabaseService):
@@ -64,21 +72,12 @@ class RewardAwareSupabaseService(SupabaseService):
 
     async def consume_usage(self, profile: UserProfile, limit: int) -> UsageStatus:
         if profile.telegram_id in founder_telegram_ids():
-            _current_reservation.set(None)
-            return UsageStatus(
-                allowed=True,
-                used=0,
-                limit=1_000_000,
-                reservation_id=None,
-                source="founder_unlimited",
-                bonus_credits_remaining=0,
-            )
+            effective_limit = founder_daily_limit(limit)
+        elif profile.telegram_id in pilot_telegram_ids():
+            effective_limit = pilot_daily_limit(limit)
+        else:
+            effective_limit = limit
 
-        effective_limit = (
-            pilot_daily_limit(limit)
-            if profile.telegram_id in pilot_telegram_ids()
-            else limit
-        )
         rows = await self._rpc(
             "consume_usage_with_referral_credit",
             {
