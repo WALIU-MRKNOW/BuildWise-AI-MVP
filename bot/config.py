@@ -100,6 +100,15 @@ class Settings(BaseSettings):
     daily_ai_request_limit: int = Field(
         default=20, ge=1, le=1000, validation_alias="DAILY_AI_REQUEST_LIMIT"
     )
+    pilot_daily_ai_request_limit: int = Field(
+        default=60, ge=1, le=1000, validation_alias="PILOT_DAILY_AI_REQUEST_LIMIT"
+    )
+    pilot_telegram_ids_raw: str = Field(
+        default="", validation_alias="PILOT_TELEGRAM_IDS"
+    )
+    founder_telegram_ids_raw: str = Field(
+        default="", validation_alias="FOUNDER_TELEGRAM_IDS"
+    )
     request_cooldown_seconds: float = Field(
         default=2.0, ge=0, le=60, validation_alias="REQUEST_COOLDOWN_SECONDS"
     )
@@ -158,6 +167,14 @@ class Settings(BaseSettings):
     @property
     def allowed_user_ids(self) -> frozenset[int]:
         return self._parse_id_list(self.allowed_user_ids_raw, "ALLOWED_USER_IDS")
+
+    @property
+    def pilot_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(self.pilot_telegram_ids_raw, "PILOT_TELEGRAM_IDS")
+
+    @property
+    def founder_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(self.founder_telegram_ids_raw, "FOUNDER_TELEGRAM_IDS")
 
     @property
     def buildwise_pro_allowed_telegram_ids(self) -> frozenset[int]:
