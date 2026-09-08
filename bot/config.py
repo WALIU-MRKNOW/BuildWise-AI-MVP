@@ -108,6 +108,30 @@ class Settings(BaseSettings):
     )
     allowed_user_ids_raw: str = Field(default="", validation_alias="ALLOWED_USER_IDS")
 
+    # Student usage tiers. Normal students keep DAILY_AI_REQUEST_LIMIT.
+    # Pilot and founder/test limits are intentionally independent from BuildWise Pro.
+    pilot_telegram_ids_raw: str = Field(
+        default="", validation_alias="BUILDWISE_PILOT_TELEGRAM_IDS"
+    )
+    pilot_daily_ai_request_limit: int = Field(
+        default=50,
+        ge=1,
+        le=5000,
+        validation_alias="BUILDWISE_PILOT_DAILY_AI_REQUEST_LIMIT",
+    )
+    founder_telegram_ids_raw: str = Field(
+        default="", validation_alias="BUILDWISE_FOUNDER_TELEGRAM_IDS"
+    )
+    founder_daily_ai_request_limit: int = Field(
+        default=1000,
+        ge=1,
+        le=100000,
+        validation_alias="BUILDWISE_FOUNDER_DAILY_AI_REQUEST_LIMIT",
+    )
+    join_notification_telegram_ids_raw: str = Field(
+        default="", validation_alias="BUILDWISE_JOIN_NOTIFICATION_TELEGRAM_IDS"
+    )
+
     host: str = Field(default="0.0.0.0", validation_alias="HOST")
     port: int = Field(default=8000, ge=1, le=65535, validation_alias="PORT")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
@@ -164,6 +188,27 @@ class Settings(BaseSettings):
         return self._parse_id_list(
             self.buildwise_pro_allowed_telegram_ids_raw,
             "BUILDWISE_PRO_ALLOWED_TELEGRAM_IDS",
+        )
+
+    @property
+    def pilot_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(
+            self.pilot_telegram_ids_raw,
+            "BUILDWISE_PILOT_TELEGRAM_IDS",
+        )
+
+    @property
+    def founder_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(
+            self.founder_telegram_ids_raw,
+            "BUILDWISE_FOUNDER_TELEGRAM_IDS",
+        )
+
+    @property
+    def join_notification_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(
+            self.join_notification_telegram_ids_raw,
+            "BUILDWISE_JOIN_NOTIFICATION_TELEGRAM_IDS",
         )
 
     @property
