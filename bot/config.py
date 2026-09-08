@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Literal
 
@@ -41,6 +42,9 @@ class Settings(BaseSettings):
 
     admin_username: str = Field(default="", validation_alias="ADMIN_USERNAME")
     admin_password: SecretStr | None = Field(default=None, validation_alias="ADMIN_PASSWORD")
+    admin_notify_telegram_ids_raw: str = Field(
+        default="", validation_alias="BUILDWISE_ADMIN_NOTIFY_TELEGRAM_IDS"
+    )
 
     # BuildWise Pro is disabled until explicitly enabled in a reviewed environment.
     buildwise_pro_enabled: bool = Field(default=False, validation_alias="BUILDWISE_PRO_ENABLED")
@@ -100,6 +104,21 @@ class Settings(BaseSettings):
     daily_ai_request_limit: int = Field(
         default=20, ge=1, le=1000, validation_alias="DAILY_AI_REQUEST_LIMIT"
     )
+    pilot_telegram_ids_raw: str = Field(
+        default="", validation_alias="PILOT_TELEGRAM_IDS"
+    )
+    pilot_daily_ai_request_limit: int = Field(
+        default=50, ge=1, le=1000, validation_alias="PILOT_DAILY_AI_REQUEST_LIMIT"
+    )
+    pilot_access_until: datetime | None = Field(
+        default=None, validation_alias="PILOT_ACCESS_UNTIL"
+    )
+    founder_telegram_ids_raw: str = Field(
+        default="", validation_alias="FOUNDER_TELEGRAM_IDS"
+    )
+    founder_daily_ai_request_limit: int = Field(
+        default=1000, ge=1, le=10000, validation_alias="FOUNDER_DAILY_AI_REQUEST_LIMIT"
+    )
     request_cooldown_seconds: float = Field(
         default=2.0, ge=0, le=60, validation_alias="REQUEST_COOLDOWN_SECONDS"
     )
@@ -137,6 +156,15 @@ class Settings(BaseSettings):
             raise ValueError("TELEGRAM_WEBHOOK_BASE_URL must begin with https://")
         return cleaned
 
+    @field_validator("pilot_access_until")
+    @classmethod
+    def normalize_pilot_access_until(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
     @staticmethod
     def _parse_id_list(raw: str, variable: str) -> frozenset[int]:
         if not raw.strip():
@@ -165,6 +193,21 @@ class Settings(BaseSettings):
             self.buildwise_pro_allowed_telegram_ids_raw,
             "BUILDWISE_PRO_ALLOWED_TELEGRAM_IDS",
         )
+
+    @property
+    def admin_notify_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(
+            self.admin_notify_telegram_ids_raw,
+            "BUILDWISE_ADMIN_NOTIFY_TELEGRAM_IDS",
+        )
+
+    @property
+    def pilot_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(self.pilot_telegram_ids_raw, "PILOT_TELEGRAM_IDS")
+
+    @property
+    def founder_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(self.founder_telegram_ids_raw, "FOUNDER_TELEGRAM_IDS")
 
     @property
     def max_file_size_bytes(self) -> int:
