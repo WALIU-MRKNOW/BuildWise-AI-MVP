@@ -8,6 +8,7 @@ from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes
 
 from bot.domain import Mode
+from bot.formatting import clean_student_math, split_for_telegram
 from bot.student_solution_pdf import render_student_solution_pdf
 from bot.study_experience import StudyRequestKind, infer_study_answer_kind
 
@@ -16,11 +17,35 @@ class StudentLearningHandlers:
     """Handle student-specific actions without changing Pro or analysis flows."""
 
     def register(self, application: Application) -> None:
-        # Register before BotHandlers' catch-all CallbackQueryHandler so this
-        # specific action is consumed here instead of falling through.
+        # Register before BotHandlers' catch-all CallbackQueryHandler so these
+        # specific actions are consumed here instead of falling through.
         application.add_handler(
             CallbackQueryHandler(self.solution_pdf, pattern=r"^followup:pdf$")
         )
+        application.add_handler(
+            CallbackQueryHandler(self.copy_answer, pattern=r"^followup:copy$")
+        )
+
+    async def copy_answer(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+
+        answer = str(context.user_data.get("last_answer", "")).strip()
+        raw_mode = str(context.user_data.get("last_mode", "")).strip()
+        if not answer:
+            await query.answer("There is no recent answer to copy.", show_alert=True)
+            return
+
+        if raw_mode == Mode.STUDY.value:
+            _, answer = infer_study_answer_kind(answer)
+            answer = clean_student_math(answer)
+
+        await query.answer("Copy-ready answer sent below.")
+        for chunk in split_for_telegram(answer):
+            await query.message.reply_text(chunk)
 
     async def solution_pdf(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
