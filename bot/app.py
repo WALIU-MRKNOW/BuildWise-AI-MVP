@@ -8,7 +8,7 @@ from telegram.ext import Application
 
 from bot.config import Settings
 from bot.handlers.bot_handlers import BotHandlers
-from bot.handlers.navigation_bot_handlers import NavigationBotHandlers
+from bot.handlers.experience_bot_handlers import ExperienceBotHandlers
 from bot.handlers.navigation_handlers import NavigationHandlers, NavigationSupportHandlers
 from bot.handlers.referral_handlers import ReferralHandlers
 from bot.handlers.student_learning_handlers import StudentLearningHandlers
@@ -35,7 +35,7 @@ class BuildWiseComponents:
 def build_components(settings: Settings) -> BuildWiseComponents:
     database = RewardAwareSupabaseService(settings)
     reminders = ReminderService(database)
-    handlers = NavigationBotHandlers(
+    handlers = ExperienceBotHandlers(
         settings,
         RewardAwareOpenAIService(settings, database),  # type: ignore[arg-type]
         RequestRouter(),
