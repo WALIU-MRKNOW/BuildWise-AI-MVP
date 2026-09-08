@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime, timedelta, timezone
+import json
 from typing import Any
 from uuid import UUID
 
@@ -97,102 +97,57 @@ class AdminService:
             raise AdminServiceError("Support ticket could not be created")
         return str(rows[0]["id"])
 
+    @staticmethod
+    def _profile_map(rows: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
+        profiles: dict[str, dict[str, str]] = {}
+        for row in rows:
+            user_id = str(row.get("user_id") or "")
+            if not user_id or user_id in profiles:
+                continue
+            try:
+                payload = json.loads(str(row.get("content") or "{}"))
+            except json.JSONDecodeError:
+                continue
+            name = str(payload.get("name") or "").strip()
+            university = str(payload.get("university") or "").strip()
+            if name or university:
+                profiles[user_id] = {"name": name, "university": university}
+        return profiles
+
     async def dashboard(self) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
         seven_days = (now - timedelta(days=7)).isoformat()
         thirty_days = (now - timedelta(days=30)).isoformat()
         today = now.date().isoformat()
 
-        referral_users = await self._rows(
+        user_rows = await self._rows(
             "/rest/v1/users",
             params={
-                "select": "id,telegram_id,username,display_name,referral_code,referred_by,created_at,updated_at",
+                "select": "id,telegram_id,username,display_name,created_at,updated_at",
                 "order": "created_at.desc",
                 "limit": "10000",
             },
         )
-        referral_counts = Counter(
-            str(row["referred_by"])
-            for row in referral_users
-            if row.get("referred_by")
-        )
-        user_by_id = {str(row["id"]): row for row in referral_users}
-
-        reward_rows = await self._rows(
-            "/rest/v1/referral_rewards",
+        profile_rows = await self._rows(
+            "/rest/v1/saved_items",
             params={
-                "select": "id,referrer_user_id,referred_user_id,credits_awarded,qualified_at,created_at",
+                "item_type": "eq.student_profile",
+                "select": "user_id,content,created_at",
                 "order": "created_at.desc",
-                "limit": "1000",
-            },
-        )
-        balance_rows = await self._rows(
-            "/rest/v1/referral_credit_balances",
-            params={
-                "select": "user_id,available_credits,lifetime_earned,lifetime_spent,updated_at",
                 "limit": "10000",
             },
         )
-        balance_by_user = {str(row["user_id"]): row for row in balance_rows}
-        qualified_counts = Counter(str(row["referrer_user_id"]) for row in reward_rows)
-
-        top_referrers = []
-        for user_id, count in referral_counts.most_common(10):
-            user = user_by_id.get(user_id, {})
-            balance = balance_by_user.get(user_id, {})
-            top_referrers.append(
-                {
-                    "user_id": user_id,
-                    "display_name": user.get("display_name") or "Student",
-                    "username": user.get("username"),
-                    "telegram_id": user.get("telegram_id"),
-                    "referral_code": user.get("referral_code"),
-                    "referral_count": count,
-                    "qualified_referrals": qualified_counts.get(user_id, 0),
-                    "available_credits": int(balance.get("available_credits") or 0),
-                    "lifetime_earned": int(balance.get("lifetime_earned") or 0),
-                }
-            )
-
-        users = []
-        for row in referral_users[:30]:
-            user_id = str(row["id"])
-            balance = balance_by_user.get(user_id, {})
-            users.append(
-                {
-                    **row,
-                    "referral_count": referral_counts.get(user_id, 0),
-                    "qualified_referrals": qualified_counts.get(user_id, 0),
-                    "available_credits": int(balance.get("available_credits") or 0),
-                }
-            )
-
-        recent_rewards = []
-        for row in reward_rows[:50]:
-            referrer = user_by_id.get(str(row.get("referrer_user_id")), {})
-            referred = user_by_id.get(str(row.get("referred_user_id")), {})
-            recent_rewards.append(
-                {
-                    **row,
-                    "referrer_name": referrer.get("display_name") or "Student",
-                    "referrer_username": referrer.get("username"),
-                    "referred_name": referred.get("display_name") or "Student",
-                    "referred_username": referred.get("username"),
-                }
-            )
+        profiles = self._profile_map(profile_rows)
+        user_lookup = {str(row["id"]): row for row in user_rows}
 
         recent_activity = await self._rows(
             "/rest/v1/conversations",
             params={
                 "select": "id,user_id,mode,category,message,created_at",
                 "order": "created_at.desc",
-                "limit": "30",
+                "limit": "100",
             },
         )
-        user_lookup: dict[str, dict[str, Any]] = {
-            str(row["id"]): row for row in referral_users
-        }
-
         mode_rows = await self._rows(
             "/rest/v1/conversations",
             params={
@@ -201,11 +156,6 @@ class AdminService:
                 "limit": "10000",
             },
         )
-        mode_usage: dict[str, int] = {}
-        for row in mode_rows:
-            mode = str(row.get("mode") or "unknown")
-            mode_usage[mode] = mode_usage.get(mode, 0) + 1
-
         usage_rows = await self._rows(
             "/rest/v1/usage_daily",
             params={
@@ -231,22 +181,69 @@ class AdminService:
             },
         )
 
-        activity = []
-        for row in recent_activity:
-            user = user_lookup.get(str(row.get("user_id")), {})
-            activity.append(
+        mode_usage: dict[str, int] = {}
+        for row in mode_rows:
+            mode = str(row.get("mode") or "unknown")
+            mode_usage[mode] = mode_usage.get(mode, 0) + 1
+
+        users: list[dict[str, Any]] = []
+        for row in user_rows:
+            user_id = str(row["id"])
+            identity = profiles.get(user_id, {})
+            name = identity.get("name") or str(row.get("display_name") or "Student")
+            university = identity.get("university") or "Institution not added"
+            telegram_id = int(row.get("telegram_id") or 0)
+            username = str(row.get("username") or "").strip()
+            users.append(
                 {
                     **row,
-                    "display_name": user.get("display_name") or "Student",
-                    "username": user.get("username"),
-                    "telegram_id": user.get("telegram_id"),
-                    "message": str(row.get("message") or "")[:240],
+                    "display_name": f"{name} · {university}",
+                    "username": (
+                        f"{username} · ID {telegram_id}" if username else None
+                    ),
+                    "telegram_id": telegram_id,
+                    "university": university,
                 }
             )
 
+        activity: list[dict[str, Any]] = []
+        for row in recent_activity:
+            user_id = str(row.get("user_id") or "")
+            user = user_lookup.get(user_id, {})
+            identity = profiles.get(user_id, {})
+            name = identity.get("name") or str(user.get("display_name") or "Student")
+            university = identity.get("university") or "Institution not added"
+            telegram_id = user.get("telegram_id")
+            username = str(user.get("username") or "").strip()
+            identity_bits = [name]
+            if username:
+                identity_bits.append(f"@{username}")
+            if telegram_id:
+                identity_bits.append(f"ID {telegram_id}")
+            if university:
+                identity_bits.append(university)
+            activity.append(
+                {
+                    **row,
+                    "display_name": " · ".join(identity_bits),
+                    "username": username or None,
+                    "telegram_id": telegram_id,
+                    "university": university,
+                    "message": str(row.get("message") or "")[:500],
+                }
+            )
+
+        enriched_tickets: list[dict[str, Any]] = []
+        for row in tickets:
+            telegram_id = row.get("telegram_id")
+            display = str(row.get("display_name") or "Student")
+            if telegram_id:
+                display = f"{display} · ID {telegram_id}"
+            enriched_tickets.append({**row, "display_name": display})
+
         return {
             "summary": {
-                "users": len(referral_users),
+                "users": len(user_rows),
                 "active_users_7d": len(
                     {str(row.get("user_id")) for row in active_rows if row.get("user_id")}
                 ),
@@ -255,23 +252,13 @@ class AdminService:
                 ),
                 "conversations_30d": len(mode_rows),
                 "open_tickets": sum(
-                    1 for row in tickets if row.get("status") != "resolved"
-                ),
-                "referrals": sum(referral_counts.values()),
-                "qualified_referrals": len(reward_rows),
-                "reward_credits_issued": sum(
-                    int(row.get("credits_awarded") or 0) for row in reward_rows
-                ),
-                "reward_credits_available": sum(
-                    int(row.get("available_credits") or 0) for row in balance_rows
+                    1 for row in enriched_tickets if row.get("status") != "resolved"
                 ),
             },
             "users": users,
             "recent_activity": activity,
             "mode_usage": mode_usage,
-            "tickets": tickets,
-            "top_referrers": top_referrers,
-            "recent_rewards": recent_rewards,
+            "tickets": enriched_tickets,
             "generated_at": now.isoformat(),
         }
 
