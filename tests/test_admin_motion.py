@@ -11,12 +11,12 @@ class AdminDashboardMotionTests(unittest.TestCase):
 
         self.assertIn('id="refresh"', html)
         self.assertIn('id="stamp"', html)
-        self.assertIn('animateNumber', html)
-        self.assertIn('class="barfill"', html)
+        self.assertIn('class="fill"', html)
         self.assertIn('@keyframes rise', html)
         self.assertIn('@keyframes grow', html)
+        self.assertIn('@keyframes pulse', html)
         self.assertIn('prefers-reduced-motion:reduce', html)
-        self.assertIn('Ticket status updated', html)
+        self.assertIn('Ticket updated', html)
 
     def test_dashboard_keeps_private_api_paths_and_csrf(self) -> None:
         html = _dashboard_html("csrf-test")
