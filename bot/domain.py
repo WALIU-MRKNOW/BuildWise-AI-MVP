@@ -61,6 +61,8 @@ class UserProfile:
     telegram_id: int
     username: str | None
     display_name: str
+    university: str | None
+    onboarding_completed: bool
     timezone: str
     timezone_confirmed: bool
     timezone_prompted: bool
@@ -80,6 +82,8 @@ class UserProfile:
             telegram_id=int(row["telegram_id"]),
             username=row.get("username"),
             display_name=row.get("display_name") or "Student",
+            university=(str(row.get("university")).strip() if row.get("university") else None),
+            onboarding_completed=bool(row.get("onboarding_completed", True)),
             timezone=row.get("timezone") or "UTC",
             timezone_confirmed=bool(row.get("timezone_confirmed", False)),
             timezone_prompted=bool(row.get("timezone_prompted", False)),
