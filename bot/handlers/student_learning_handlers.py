@@ -8,6 +8,7 @@ from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes
 
 from bot.domain import Mode
+from bot.formatting import clean_student_math, split_for_telegram
 from bot.student_solution_pdf import render_student_solution_pdf
 from bot.study_experience import StudyRequestKind, infer_study_answer_kind
 
@@ -16,11 +17,39 @@ class StudentLearningHandlers:
     """Handle student-specific actions without changing Pro or analysis flows."""
 
     def register(self, application: Application) -> None:
-        # Register before BotHandlers' catch-all CallbackQueryHandler so this
-        # specific action is consumed here instead of falling through.
+        # Register before BotHandlers' catch-all CallbackQueryHandler so these
+        # specific actions are consumed here instead of falling through.
         application.add_handler(
             CallbackQueryHandler(self.solution_pdf, pattern=r"^followup:pdf$")
         )
+        application.add_handler(
+            CallbackQueryHandler(self.copy_answer, pattern=r"^followup:copy$")
+        )
+
+    async def copy_answer(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        query = update.callback_query
+        if query is None or query.message is None:
+            return
+        await query.answer("Copy-ready answer")
+
+        raw_mode = context.user_data.get("last_mode")
+        answer = str(context.user_data.get("last_answer", "")).strip()
+        if raw_mode != Mode.STUDY.value or not answer:
+            await query.message.reply_text("Ask a Study & Solve question first.")
+            return
+
+        _, body = infer_study_answer_kind(answer)
+        body = clean_student_math(body).strip()
+        if not body:
+            body = answer
+        # Telegram does not expose an unrestricted clipboard API to bots for long
+        # messages. Send a clean copy-ready version with no extra AI request.
+        chunks = split_for_telegram(body, limit=3900)
+        for index, chunk in enumerate(chunks):
+            prefix = "📋 COPY\n\n" if index == 0 else ""
+            await query.message.reply_text(f"{prefix}{chunk}")
 
     async def solution_pdf(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
