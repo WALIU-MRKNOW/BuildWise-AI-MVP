@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -11,6 +10,7 @@ import httpx
 
 from bot.config import Settings
 from bot.services.supabase_service import _auth_headers
+from bot.student_access import resolve_student_access
 
 
 class AdminServiceError(RuntimeError):
@@ -21,6 +21,7 @@ class AdminService:
     """Uses the server secret directly; never instantiate this in browser code."""
 
     def __init__(self, settings: Settings) -> None:
+        self._settings = settings
         self._base_url = settings.supabase_url
         self._key = settings.supabase_secret_key.get_secret_value()
 
@@ -103,108 +104,78 @@ class AdminService:
         thirty_days = (now - timedelta(days=30)).isoformat()
         today = now.date().isoformat()
 
-        referral_users = await self._rows(
+        raw_users = await self._rows(
             "/rest/v1/users",
             params={
-                "select": "id,telegram_id,username,display_name,referral_code,referred_by,created_at,updated_at",
+                "select": "id,telegram_id,username,display_name,student_name,university,onboarding_completed,created_at,updated_at",
                 "order": "created_at.desc",
                 "limit": "10000",
             },
         )
-        referral_counts = Counter(
-            str(row["referred_by"])
-            for row in referral_users
-            if row.get("referred_by")
-        )
-        user_by_id = {str(row["id"]): row for row in referral_users}
-
-        reward_rows = await self._rows(
-            "/rest/v1/referral_rewards",
-            params={
-                "select": "id,referrer_user_id,referred_user_id,credits_awarded,qualified_at,created_at",
-                "order": "created_at.desc",
-                "limit": "1000",
-            },
-        )
-        balance_rows = await self._rows(
-            "/rest/v1/referral_credit_balances",
-            params={
-                "select": "user_id,available_credits,lifetime_earned,lifetime_spent,updated_at",
-                "limit": "10000",
-            },
-        )
-        balance_by_user = {str(row["user_id"]): row for row in balance_rows}
-        qualified_counts = Counter(str(row["referrer_user_id"]) for row in reward_rows)
-
-        top_referrers = []
-        for user_id, count in referral_counts.most_common(10):
-            user = user_by_id.get(user_id, {})
-            balance = balance_by_user.get(user_id, {})
-            top_referrers.append(
-                {
-                    "user_id": user_id,
-                    "display_name": user.get("display_name") or "Student",
-                    "username": user.get("username"),
-                    "telegram_id": user.get("telegram_id"),
-                    "referral_code": user.get("referral_code"),
-                    "referral_count": count,
-                    "qualified_referrals": qualified_counts.get(user_id, 0),
-                    "available_credits": int(balance.get("available_credits") or 0),
-                    "lifetime_earned": int(balance.get("lifetime_earned") or 0),
-                }
-            )
-
-        users = []
-        for row in referral_users[:30]:
-            user_id = str(row["id"])
-            balance = balance_by_user.get(user_id, {})
+        user_lookup = {str(row["id"]): row for row in raw_users}
+        users: list[dict[str, Any]] = []
+        for row in raw_users:
+            telegram_id = int(row.get("telegram_id") or 0)
+            access = resolve_student_access(self._settings, telegram_id, now=now)
             users.append(
                 {
                     **row,
-                    "referral_count": referral_counts.get(user_id, 0),
-                    "qualified_referrals": qualified_counts.get(user_id, 0),
-                    "available_credits": int(balance.get("available_credits") or 0),
+                    "access_tier": access.tier.value,
+                    "daily_limit": access.daily_limit,
                 }
             )
 
-        recent_rewards = []
-        for row in reward_rows[:50]:
-            referrer = user_by_id.get(str(row.get("referrer_user_id")), {})
-            referred = user_by_id.get(str(row.get("referred_user_id")), {})
-            recent_rewards.append(
-                {
-                    **row,
-                    "referrer_name": referrer.get("display_name") or "Student",
-                    "referrer_username": referrer.get("username"),
-                    "referred_name": referred.get("display_name") or "Student",
-                    "referred_username": referred.get("username"),
-                }
-            )
-
-        recent_activity = await self._rows(
-            "/rest/v1/conversations",
+        events = await self._rows(
+            "/rest/v1/user_activity_events",
             params={
-                "select": "id,user_id,mode,category,message,created_at",
+                "select": "id,user_id,event_type,mode,detail,created_at",
                 "order": "created_at.desc",
-                "limit": "30",
+                "limit": "200",
             },
         )
-        user_lookup: dict[str, dict[str, Any]] = {
-            str(row["id"]): row for row in referral_users
-        }
+        recent_activity: list[dict[str, Any]] = []
+        for row in events:
+            user = user_lookup.get(str(row.get("user_id")), {})
+            recent_activity.append(
+                {
+                    **row,
+                    "display_name": user.get("student_name")
+                    or user.get("display_name")
+                    or "Student",
+                    "username": user.get("username"),
+                    "telegram_id": user.get("telegram_id"),
+                    "university": user.get("university"),
+                }
+            )
 
-        mode_rows = await self._rows(
-            "/rest/v1/conversations",
+        mode_event_rows = await self._rows(
+            "/rest/v1/user_activity_events",
             params={
                 "created_at": f"gte.{thirty_days}",
+                "event_type": "eq.ai_request",
                 "select": "mode,user_id,created_at",
                 "limit": "10000",
             },
         )
         mode_usage: dict[str, int] = {}
-        for row in mode_rows:
+        for row in mode_event_rows:
             mode = str(row.get("mode") or "unknown")
             mode_usage[mode] = mode_usage.get(mode, 0) + 1
+
+        # Keep the chart useful immediately after rollout by falling back to
+        # conversation history until the new operational event feed has data.
+        if not mode_usage:
+            historic_modes = await self._rows(
+                "/rest/v1/conversations",
+                params={
+                    "created_at": f"gte.{thirty_days}",
+                    "select": "mode,user_id,created_at",
+                    "limit": "10000",
+                },
+            )
+            for row in historic_modes:
+                mode = str(row.get("mode") or "unknown")
+                mode_usage[mode] = mode_usage.get(mode, 0) + 1
 
         usage_rows = await self._rows(
             "/rest/v1/usage_daily",
@@ -222,7 +193,15 @@ class AdminService:
                 "limit": "100",
             },
         )
-        active_rows = await self._rows(
+        active_event_rows = await self._rows(
+            "/rest/v1/user_activity_events",
+            params={
+                "created_at": f"gte.{seven_days}",
+                "select": "user_id",
+                "limit": "10000",
+            },
+        )
+        active_conversation_rows = await self._rows(
             "/rest/v1/conversations",
             params={
                 "created_at": f"gte.{seven_days}",
@@ -230,48 +209,30 @@ class AdminService:
                 "limit": "10000",
             },
         )
-
-        activity = []
-        for row in recent_activity:
-            user = user_lookup.get(str(row.get("user_id")), {})
-            activity.append(
-                {
-                    **row,
-                    "display_name": user.get("display_name") or "Student",
-                    "username": user.get("username"),
-                    "telegram_id": user.get("telegram_id"),
-                    "message": str(row.get("message") or "")[:240],
-                }
-            )
+        active_user_ids = {
+            str(row.get("user_id"))
+            for row in [*active_event_rows, *active_conversation_rows]
+            if row.get("user_id")
+        }
 
         return {
             "summary": {
-                "users": len(referral_users),
-                "active_users_7d": len(
-                    {str(row.get("user_id")) for row in active_rows if row.get("user_id")}
-                ),
+                "users": len(users),
+                "active_users_7d": len(active_user_ids),
                 "requests_today": sum(
                     int(row.get("request_count") or 0) for row in usage_rows
                 ),
-                "conversations_30d": len(mode_rows),
                 "open_tickets": sum(
                     1 for row in tickets if row.get("status") != "resolved"
                 ),
-                "referrals": sum(referral_counts.values()),
-                "qualified_referrals": len(reward_rows),
-                "reward_credits_issued": sum(
-                    int(row.get("credits_awarded") or 0) for row in reward_rows
-                ),
-                "reward_credits_available": sum(
-                    int(row.get("available_credits") or 0) for row in balance_rows
+                "onboarded_users": sum(
+                    1 for row in users if row.get("onboarding_completed")
                 ),
             },
             "users": users,
-            "recent_activity": activity,
+            "recent_activity": recent_activity,
             "mode_usage": mode_usage,
             "tickets": tickets,
-            "top_referrers": top_referrers,
-            "recent_rewards": recent_rewards,
             "generated_at": now.isoformat(),
         }
 
