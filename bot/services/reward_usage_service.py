@@ -188,6 +188,30 @@ class RewardAwareSupabaseService(SupabaseService):
             },
         )
 
+    async def delete_history(self, user_id: str) -> int:
+        """Delete student work while preserving required onboarding identity."""
+        conversations = await self.recent_conversations(user_id, limit=500)
+        references = {
+            row.get("file_reference") for row in conversations if row.get("file_reference")
+        }
+        for reference in references:
+            try:
+                await self.delete_file(str(reference))
+            except SupabaseError:
+                pass
+        await self._request(
+            "DELETE", "/rest/v1/conversations", params={"user_id": f"eq.{user_id}"}
+        )
+        await self._request(
+            "DELETE",
+            "/rest/v1/saved_items",
+            params={
+                "user_id": f"eq.{user_id}",
+                "item_type": f"neq.{_STUDENT_PROFILE_ITEM_TYPE}",
+            },
+        )
+        return len(conversations)
+
 
 class RewardAwareOpenAIService:
     """Finalize referral qualification only after the AI call succeeds."""
