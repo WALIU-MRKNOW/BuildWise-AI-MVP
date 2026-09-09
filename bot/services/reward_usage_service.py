@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -20,6 +21,8 @@ _current_reservation: ContextVar[str | None] = ContextVar(
 
 _STUDENT_PROFILE_ITEM_TYPE = "student_profile"
 _STUDENT_PROFILE_TITLE = "BuildWise student profile"
+_USAGE_TIER_ITEM_TYPE = "usage_tier"
+_INTERNAL_ITEM_TYPES = (_STUDENT_PROFILE_ITEM_TYPE, _USAGE_TIER_ITEM_TYPE)
 
 
 def _parse_telegram_ids(raw: str, variable: str) -> frozenset[int]:
@@ -67,13 +70,66 @@ def pilot_daily_limit(normal_limit: int) -> int:
     return _configured_daily_limit("PILOT_DAILY_AI_REQUEST_LIMIT", 40, normal_limit)
 
 
+def _parse_timestamp(value: object) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 class RewardAwareSupabaseService(SupabaseService):
     """Use daily allowance first, then referral credits, with exact refunds."""
+
+    async def _database_pilot_active(self, user_id: str) -> bool:
+        rows = await self._request(
+            "GET",
+            "/rest/v1/saved_items",
+            params={
+                "user_id": f"eq.{user_id}",
+                "item_type": f"eq.{_USAGE_TIER_ITEM_TYPE}",
+                "select": "content,created_at",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return False
+        try:
+            payload = json.loads(str(rows[0].get("content") or "{}"))
+        except json.JSONDecodeError:
+            return False
+        if str(payload.get("tier") or "").lower() != "pilot":
+            return False
+        expires_at = _parse_timestamp(payload.get("expires_at"))
+        if expires_at is None:
+            return False
+        if expires_at <= datetime.now(timezone.utc):
+            try:
+                await self._request(
+                    "DELETE",
+                    "/rest/v1/saved_items",
+                    params={
+                        "user_id": f"eq.{user_id}",
+                        "item_type": f"eq.{_USAGE_TIER_ITEM_TYPE}",
+                    },
+                )
+            except SupabaseError:
+                logger.warning("Could not clean expired pilot tier user_id=%s", user_id)
+            return False
+        return True
 
     async def consume_usage(self, profile: UserProfile, limit: int) -> UsageStatus:
         if profile.telegram_id in founder_telegram_ids():
             effective_limit = founder_daily_limit(limit)
-        elif profile.telegram_id in pilot_telegram_ids():
+        elif (
+            profile.telegram_id in pilot_telegram_ids()
+            or await self._database_pilot_active(profile.id)
+        ):
             effective_limit = pilot_daily_limit(limit)
         else:
             effective_limit = limit
@@ -180,7 +236,7 @@ class RewardAwareSupabaseService(SupabaseService):
             "/rest/v1/saved_items",
             params={
                 "user_id": f"eq.{user_id}",
-                "item_type": f"neq.{_STUDENT_PROFILE_ITEM_TYPE}",
+                "item_type": "not.in.(student_profile,usage_tier)",
                 "select": "id,item_type,title,content,created_at",
                 "order": "created_at.desc",
                 "limit": str(limit),
@@ -188,7 +244,7 @@ class RewardAwareSupabaseService(SupabaseService):
         )
 
     async def delete_history(self, user_id: str) -> int:
-        """Delete student work while preserving required onboarding identity."""
+        """Delete student work while preserving onboarding and admin tier metadata."""
         conversations = await self.recent_conversations(user_id, limit=500)
         references = {
             row.get("file_reference") for row in conversations if row.get("file_reference")
@@ -206,7 +262,7 @@ class RewardAwareSupabaseService(SupabaseService):
             "/rest/v1/saved_items",
             params={
                 "user_id": f"eq.{user_id}",
-                "item_type": f"neq.{_STUDENT_PROFILE_ITEM_TYPE}",
+                "item_type": "not.in.(student_profile,usage_tier)",
             },
         )
         return len(conversations)
