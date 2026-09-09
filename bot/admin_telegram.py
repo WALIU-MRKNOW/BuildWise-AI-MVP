@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 import logging
 
 from telegram import BotCommand, Update
-from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from bot.config import Settings
@@ -276,7 +276,13 @@ class AdminTelegramHandlers:
         return value if value > 0 else None
 
 
-def build_admin_telegram_application(settings: Settings) -> Application | None:
+@dataclass(frozen=True, slots=True)
+class AdminTelegramComponents:
+    telegram: Application
+    handlers: AdminTelegramHandlers
+
+
+def build_admin_telegram_application(settings: Settings) -> AdminTelegramComponents | None:
     """Build the private admin bot only when a separate token is configured."""
 
     token_setting = settings.admin_telegram_bot_token
@@ -286,5 +292,6 @@ def build_admin_telegram_application(settings: Settings) -> Application | None:
     if not token:
         return None
     application = Application.builder().token(token).build()
-    AdminTelegramHandlers(settings).register(application)
-    return application
+    handlers = AdminTelegramHandlers(settings)
+    handlers.register(application)
+    return AdminTelegramComponents(application, handlers)
