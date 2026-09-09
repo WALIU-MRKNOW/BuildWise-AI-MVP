@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from typing import Any
 from uuid import UUID
 
@@ -15,6 +16,33 @@ from bot.services.supabase_service import _auth_headers
 
 class AdminServiceError(RuntimeError):
     pass
+
+
+def _parse_ids(raw: str) -> frozenset[int]:
+    values: set[int] = set()
+    for item in raw.split(","):
+        value = item.strip()
+        if not value:
+            continue
+        try:
+            parsed = int(value)
+        except ValueError:
+            continue
+        if parsed > 0:
+            values.add(parsed)
+    return frozenset(values)
+
+
+def _parse_timestamp(value: object) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 class AdminService:
@@ -114,6 +142,203 @@ class AdminService:
                 profiles[user_id] = {"name": name, "university": university}
         return profiles
 
+    @staticmethod
+    def _tier_map(rows: list[dict[str, Any]]) -> dict[str, datetime]:
+        now = datetime.now(timezone.utc)
+        tiers: dict[str, datetime] = {}
+        for row in rows:
+            user_id = str(row.get("user_id") or "")
+            if not user_id or user_id in tiers:
+                continue
+            try:
+                payload = json.loads(str(row.get("content") or "{}"))
+            except json.JSONDecodeError:
+                continue
+            if str(payload.get("tier") or "").lower() != "pilot":
+                continue
+            expires_at = _parse_timestamp(payload.get("expires_at"))
+            if expires_at is not None and expires_at > now:
+                tiers[user_id] = expires_at
+        return tiers
+
+    @staticmethod
+    def _effective_tier(
+        *, telegram_id: int, user_id: str, database_pilots: dict[str, datetime]
+    ) -> tuple[str, datetime | None]:
+        founders = _parse_ids(os.getenv("FOUNDER_TELEGRAM_IDS", ""))
+        configured_pilots = _parse_ids(os.getenv("PILOT_TELEGRAM_IDS", ""))
+        if telegram_id in founders:
+            return "Founder", None
+        if telegram_id in configured_pilots:
+            return "Pilot", None
+        expires_at = database_pilots.get(user_id)
+        if expires_at is not None:
+            return "Pilot", expires_at
+        return "Normal", None
+
+    async def _student_metadata(
+        self,
+    ) -> tuple[dict[str, dict[str, str]], dict[str, datetime]]:
+        profile_rows = await self._rows(
+            "/rest/v1/saved_items",
+            params={
+                "item_type": "eq.student_profile",
+                "select": "user_id,content,created_at",
+                "order": "created_at.desc",
+                "limit": "10000",
+            },
+        )
+        tier_rows = await self._rows(
+            "/rest/v1/saved_items",
+            params={
+                "item_type": "eq.usage_tier",
+                "select": "user_id,content,created_at",
+                "order": "created_at.desc",
+                "limit": "10000",
+            },
+        )
+        return self._profile_map(profile_rows), self._tier_map(tier_rows)
+
+    @staticmethod
+    def _enrich_user(
+        row: dict[str, Any],
+        profiles: dict[str, dict[str, str]],
+        tiers: dict[str, datetime],
+    ) -> dict[str, Any]:
+        user_id = str(row.get("id") or "")
+        identity = profiles.get(user_id, {})
+        name = identity.get("name") or str(row.get("display_name") or "Student")
+        university = identity.get("university") or "Institution not added"
+        telegram_id = int(row.get("telegram_id") or 0)
+        username = str(row.get("username") or "").strip()
+        tier, pilot_until = AdminService._effective_tier(
+            telegram_id=telegram_id,
+            user_id=user_id,
+            database_pilots=tiers,
+        )
+        return {
+            **row,
+            "name": name,
+            "display_name": name,
+            "university": university,
+            "telegram_id": telegram_id,
+            "username": username or None,
+            "tier": tier,
+            "pilot_until": pilot_until.isoformat() if pilot_until else None,
+        }
+
+    async def list_students(self, limit: int = 30) -> list[dict[str, Any]]:
+        limit = min(max(int(limit), 1), 100)
+        rows = await self._rows(
+            "/rest/v1/users",
+            params={
+                "select": "id,telegram_id,username,display_name,created_at,updated_at",
+                "order": "created_at.desc",
+                "limit": str(limit),
+            },
+        )
+        profiles, tiers = await self._student_metadata()
+        return [self._enrich_user(row, profiles, tiers) for row in rows]
+
+    async def student_by_telegram_id(self, telegram_id: int) -> dict[str, Any] | None:
+        rows = await self._rows(
+            "/rest/v1/users",
+            params={
+                "telegram_id": f"eq.{int(telegram_id)}",
+                "select": "id,telegram_id,username,display_name,created_at,updated_at",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return None
+        profiles, tiers = await self._student_metadata()
+        return self._enrich_user(rows[0], profiles, tiers)
+
+    async def recent_admin_activity(self, limit: int = 20) -> list[dict[str, Any]]:
+        limit = min(max(int(limit), 1), 50)
+        activity = await self._rows(
+            "/rest/v1/conversations",
+            params={
+                "select": "id,user_id,mode,category,message,created_at",
+                "order": "created_at.desc",
+                "limit": str(limit),
+            },
+        )
+        user_ids = {str(row.get("user_id") or "") for row in activity if row.get("user_id")}
+        if not user_ids:
+            return []
+        users = await self._rows(
+            "/rest/v1/users",
+            params={
+                "id": f"in.({','.join(user_ids)})",
+                "select": "id,telegram_id,username,display_name,created_at,updated_at",
+                "limit": str(max(1, len(user_ids))),
+            },
+        )
+        profiles, tiers = await self._student_metadata()
+        lookup = {
+            str(row["id"]): self._enrich_user(row, profiles, tiers) for row in users
+        }
+        result: list[dict[str, Any]] = []
+        for row in activity:
+            user = lookup.get(str(row.get("user_id") or ""), {})
+            result.append(
+                {
+                    **row,
+                    "name": user.get("name") or "Student",
+                    "university": user.get("university") or "Institution not added",
+                    "telegram_id": user.get("telegram_id"),
+                    "username": user.get("username"),
+                    "tier": user.get("tier") or "Normal",
+                    "message": str(row.get("message") or "")[:500],
+                }
+            )
+        return result
+
+    async def set_pilot(self, telegram_id: int, *, days: int = 14) -> datetime:
+        if days < 1 or days > 90:
+            raise ValueError("Pilot duration must be between 1 and 90 days")
+        student = await self.student_by_telegram_id(telegram_id)
+        if student is None:
+            raise ValueError("Telegram ID is not a BuildWise student")
+        user_id = str(student["id"])
+        expires_at = datetime.now(timezone.utc) + timedelta(days=days)
+        await self._request(
+            "DELETE",
+            "/rest/v1/saved_items",
+            params={"user_id": f"eq.{user_id}", "item_type": "eq.usage_tier"},
+        )
+        payload = json.dumps(
+            {"tier": "pilot", "expires_at": expires_at.isoformat()},
+            separators=(",", ":"),
+        )
+        await self._request(
+            "POST",
+            "/rest/v1/saved_items",
+            json={
+                "user_id": user_id,
+                "item_type": "usage_tier",
+                "title": "BuildWise usage tier",
+                "content": payload,
+                "file_reference": None,
+            },
+            prefer="return=minimal",
+        )
+        return expires_at
+
+    async def set_normal(self, telegram_id: int) -> None:
+        student = await self.student_by_telegram_id(telegram_id)
+        if student is None:
+            raise ValueError("Telegram ID is not a BuildWise student")
+        await self._request(
+            "DELETE",
+            "/rest/v1/saved_items",
+            params={
+                "user_id": f"eq.{student['id']}",
+                "item_type": "eq.usage_tier",
+            },
+        )
+
     async def dashboard(self) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
         seven_days = (now - timedelta(days=7)).isoformat()
@@ -128,16 +353,7 @@ class AdminService:
                 "limit": "10000",
             },
         )
-        profile_rows = await self._rows(
-            "/rest/v1/saved_items",
-            params={
-                "item_type": "eq.student_profile",
-                "select": "user_id,content,created_at",
-                "order": "created_at.desc",
-                "limit": "10000",
-            },
-        )
-        profiles = self._profile_map(profile_rows)
+        profiles, tiers = await self._student_metadata()
         user_lookup = {str(row["id"]): row for row in user_rows}
 
         recent_activity = await self._rows(
@@ -188,47 +404,45 @@ class AdminService:
 
         users: list[dict[str, Any]] = []
         for row in user_rows:
-            user_id = str(row["id"])
-            identity = profiles.get(user_id, {})
-            name = identity.get("name") or str(row.get("display_name") or "Student")
-            university = identity.get("university") or "Institution not added"
-            telegram_id = int(row.get("telegram_id") or 0)
-            username = str(row.get("username") or "").strip()
+            user = self._enrich_user(row, profiles, tiers)
+            tier_note = (
+                f"Pilot until {user['pilot_until'][:10]}"
+                if user.get("pilot_until")
+                else str(user["tier"])
+            )
             users.append(
                 {
-                    **row,
-                    "display_name": f"{name} · {university}",
+                    **user,
+                    "display_name": f"{user['name']} · {user['university']} · {tier_note}",
                     "username": (
-                        f"{username} · ID {telegram_id}" if username else None
+                        f"{user['username']} · ID {user['telegram_id']}"
+                        if user.get("username")
+                        else None
                     ),
-                    "telegram_id": telegram_id,
-                    "university": university,
                 }
             )
 
         activity: list[dict[str, Any]] = []
         for row in recent_activity:
             user_id = str(row.get("user_id") or "")
-            user = user_lookup.get(user_id, {})
-            identity = profiles.get(user_id, {})
-            name = identity.get("name") or str(user.get("display_name") or "Student")
-            university = identity.get("university") or "Institution not added"
-            telegram_id = user.get("telegram_id")
-            username = str(user.get("username") or "").strip()
-            identity_bits = [name]
-            if username:
-                identity_bits.append(f"@{username}")
-            if telegram_id:
-                identity_bits.append(f"ID {telegram_id}")
-            if university:
-                identity_bits.append(university)
+            raw_user = user_lookup.get(user_id, {})
+            user = self._enrich_user(raw_user, profiles, tiers) if raw_user else {}
+            identity_bits = [str(user.get("name") or "Student")]
+            if user.get("username"):
+                identity_bits.append(f"@{user['username']}")
+            if user.get("telegram_id"):
+                identity_bits.append(f"ID {user['telegram_id']}")
+            if user.get("university"):
+                identity_bits.append(str(user["university"]))
+            identity_bits.append(str(user.get("tier") or "Normal"))
             activity.append(
                 {
                     **row,
                     "display_name": " · ".join(identity_bits),
-                    "username": username or None,
-                    "telegram_id": telegram_id,
-                    "university": university,
+                    "username": user.get("username"),
+                    "telegram_id": user.get("telegram_id"),
+                    "university": user.get("university") or "Institution not added",
+                    "tier": user.get("tier") or "Normal",
                     "message": str(row.get("message") or "")[:500],
                 }
             )
