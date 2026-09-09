@@ -41,6 +41,9 @@ class Settings(BaseSettings):
 
     admin_username: str = Field(default="", validation_alias="ADMIN_USERNAME")
     admin_password: SecretStr | None = Field(default=None, validation_alias="ADMIN_PASSWORD")
+    admin_telegram_bot_token: SecretStr | None = Field(
+        default=None, validation_alias="ADMIN_TELEGRAM_BOT_TOKEN"
+    )
 
     # BuildWise Pro is disabled until explicitly enabled in a reviewed environment.
     buildwise_pro_enabled: bool = Field(default=False, validation_alias="BUILDWISE_PRO_ENABLED")
