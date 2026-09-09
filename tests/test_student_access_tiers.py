@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 from bot.config import Settings
@@ -36,21 +37,23 @@ def profile(telegram_id: int = 123, timezone: str = "Africa/Lagos") -> UserProfi
     )
 
 
+def usage_row(limit: int) -> list[dict[str, object]]:
+    return [
+        {
+            "allowed": True,
+            "used": 1,
+            "limit_value": limit,
+            "reservation_id": "00000000-0000-0000-0000-000000000099",
+            "source": "daily",
+            "bonus_credits_remaining": 0,
+        }
+    ]
+
+
 class StudentAccessTierTests(unittest.IsolatedAsyncioTestCase):
     async def test_founder_uses_high_tracked_limit(self) -> None:
         service = RewardAwareSupabaseService(test_settings())
-        service._rpc = AsyncMock(  # type: ignore[method-assign]
-            return_value=[
-                {
-                    "allowed": True,
-                    "used": 101,
-                    "limit_value": 1000,
-                    "reservation_id": "00000000-0000-0000-0000-000000000099",
-                    "source": "daily",
-                    "bonus_credits_remaining": 0,
-                }
-            ]
-        )
+        service._rpc = AsyncMock(return_value=usage_row(1000))  # type: ignore[method-assign]
         with patch.dict(
             os.environ,
             {
@@ -67,18 +70,7 @@ class StudentAccessTierTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_pilot_uses_higher_limit(self) -> None:
         service = RewardAwareSupabaseService(test_settings())
-        service._rpc = AsyncMock(  # type: ignore[method-assign]
-            return_value=[
-                {
-                    "allowed": True,
-                    "used": 21,
-                    "limit_value": 40,
-                    "reservation_id": "00000000-0000-0000-0000-000000000099",
-                    "source": "daily",
-                    "bonus_credits_remaining": 0,
-                }
-            ]
-        )
+        service._rpc = AsyncMock(return_value=usage_row(40))  # type: ignore[method-assign]
         with patch.dict(
             os.environ,
             {
@@ -93,20 +85,35 @@ class StudentAccessTierTests(unittest.IsolatedAsyncioTestCase):
         call = service._rpc.await_args
         self.assertEqual(call.args[1]["p_limit"], 40)
 
-    async def test_normal_student_keeps_public_limit(self) -> None:
+    async def test_admin_promoted_pilot_uses_higher_limit_until_expiry(self) -> None:
         service = RewardAwareSupabaseService(test_settings())
-        service._rpc = AsyncMock(  # type: ignore[method-assign]
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
+        service._request = AsyncMock(  # type: ignore[method-assign]
             return_value=[
                 {
-                    "allowed": True,
-                    "used": 1,
-                    "limit_value": 20,
-                    "reservation_id": "00000000-0000-0000-0000-000000000099",
-                    "source": "daily",
-                    "bonus_credits_remaining": 0,
+                    "content": '{"tier":"pilot","expires_at":"' + expires_at + '"}',
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                 }
             ]
         )
+        service._rpc = AsyncMock(return_value=usage_row(40))  # type: ignore[method-assign]
+        with patch.dict(
+            os.environ,
+            {
+                "PILOT_TELEGRAM_IDS": "",
+                "FOUNDER_TELEGRAM_IDS": "",
+                "PILOT_DAILY_AI_REQUEST_LIMIT": "40",
+            },
+            clear=False,
+        ):
+            usage = await service.consume_usage(profile(777), 20)
+        self.assertEqual(usage.limit, 40)
+        self.assertEqual(service._rpc.await_args.args[1]["p_limit"], 40)
+
+    async def test_normal_student_keeps_public_limit(self) -> None:
+        service = RewardAwareSupabaseService(test_settings())
+        service._request = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        service._rpc = AsyncMock(return_value=usage_row(20))  # type: ignore[method-assign]
         with patch.dict(
             os.environ,
             {"FOUNDER_TELEGRAM_IDS": "", "PILOT_TELEGRAM_IDS": ""},
