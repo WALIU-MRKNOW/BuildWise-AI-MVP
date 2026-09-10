@@ -118,11 +118,13 @@ class OpenAIService:
                 model=self._settings.openai_model,
                 instructions=f"{system_prompt(mode)}\n\nResponse preference: {style}",
                 input=input_messages,
-                max_output_tokens=self._settings.openai_max_output_tokens,
+                max_output_tokens=max(4000, self._settings.openai_max_output_tokens) if mode is Mode.SKETCH else self._settings.openai_max_output_tokens,
                 store=False,
             )
         except OpenAIError as exc:
             raise self._translate_error(exc) from exc
+        if getattr(response, "status", None) in {"incomplete", "failed", "cancelled"}:
+            raise AIServiceError("The review did not finish. Please send one plan or question at a time; I have not published an incomplete answer.")
         output = (response.output_text or "").strip()
         if not output:
             raise AIServiceError(
