@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from bot.domain import Mode
+from bot.sketch_experience import extract_sketch_fix_spec
 from bot.study_experience import StudyRequestKind, infer_study_answer_kind
 
 
@@ -80,6 +81,9 @@ def format_response(mode: Mode, model_text: str) -> str:
     if mode is Mode.STUDY:
         kind, cleaned = infer_study_answer_kind(cleaned)
         cleaned = clean_student_math(cleaned)
+    elif mode is Mode.SKETCH:
+        cleaned, _ = extract_sketch_fix_spec(cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     else:
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     if not cleaned:
