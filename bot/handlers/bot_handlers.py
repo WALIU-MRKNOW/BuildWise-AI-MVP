@@ -8,7 +8,8 @@ import logging
 from time import monotonic
 from typing import Any
 
-from telegram import BotCommand, Update
+from telegram import BotCommand, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from uuid import uuid4
 from telegram.constants import ChatAction
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import (
@@ -31,7 +32,7 @@ from bot.domain import (
     StudyCompletion,
     UserProfile,
 )
-from bot.formatting import format_response, split_for_telegram
+from bot.formatting import format_response, split_for_telegram, sketch_preview
 from bot.keyboards import (
     clarification_keyboard,
     follow_up_keyboard,
@@ -675,6 +676,17 @@ class BotHandlers:
             formatted = format_response(mode, answer)
             chunks = split_for_telegram(formatted)
             markup = follow_up_keyboard(mode) if profile.follow_up_buttons else None
+            if mode is Mode.SKETCH:
+                report_key = str(uuid4())
+                reports = context.user_data.setdefault("sketch_reports", {})
+                reports[report_key] = {"answer": answer, "image": payload.image_bytes}
+                while len(reports) > 2:
+                    reports.pop(next(iter(reports)))
+                markup = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Get PDF", callback_data=f"sketchpdf:{report_key}")],
+                    *(markup.inline_keyboard if markup else []),
+                ])
+                chunks = [format_response(mode, sketch_preview(answer))]
             try:
                 await loading.edit_text(
                     chunks[0], reply_markup=markup if len(chunks) == 1 else None
