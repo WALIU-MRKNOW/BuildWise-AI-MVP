@@ -44,7 +44,7 @@ def build_components(settings: Settings) -> BuildWiseComponents:
     )
     support_handlers = NavigationSupportHandlers(database, AdminService(settings))
     referral_handlers = ReferralHandlers(ReferralService(settings), handlers)
-    student_learning_handlers = StudentLearningHandlers()
+    student_learning_handlers = StudentLearningHandlers(database)
     pro_handlers = TelegramProBetaHandlers(settings)
     navigation_handlers = NavigationHandlers(handlers, pro_handlers)
     telegram = (
