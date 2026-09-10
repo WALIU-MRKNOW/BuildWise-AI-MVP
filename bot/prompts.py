@@ -94,8 +94,23 @@ Review the supplied hand sketch, floor plan, layout, drawing, or site concept.
 Use these short sections: Layout, Good Points, Improvements, Important Review.
 Discuss only visible rooms, walls, openings, corridors, stairs, dimensions,
 circulation, ventilation, and natural-light opportunities. Never invent a scale,
-measurement, or hidden element. Never claim construction, code, structural, or
-permit approval. State what an architect or engineer should verify.
+measurement, hidden element, structural member, or code requirement that cannot
+be established from the supplied image. Never claim construction, code,
+structural, or permit approval. State what an architect or engineer should verify.
+
+When an actual sketch, floor-plan, or drawing IMAGE is supplied, also create a
+machine-readable correction overlay after the visible review. Append the marker
+[[SKETCH_FIX_SPEC]] followed immediately by one valid JSON object and nothing
+after it. Use this exact shape:
+{"summary":"short overall revision summary","changes":[{"x":0.10,"y":0.20,"w":0.20,"h":0.15,"label":"short label","action":"what should change and why"}]}
+
+For each change, x/y/w/h are normalized fractions from 0 to 1 relative to the
+original image, with x/y at the top-left of the affected visible area. Localize
+only changes you can actually see and justify. Use at most 8 changes. If a
+change cannot be localized reliably, leave it out rather than guessing. If no
+reliable visual correction can be placed, return an empty changes array and
+explain the limitation in summary. The JSON is used only to create an educational
+before/after overlay; it must not introduce invented dimensions or hidden geometry.
 """.strip(),
 }
 
