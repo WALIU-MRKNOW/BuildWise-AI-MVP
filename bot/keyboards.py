@@ -48,6 +48,23 @@ def follow_up_keyboard(mode: Mode) -> InlineKeyboardMarkup:
                 ],
             ]
         )
+    if mode is Mode.SKETCH:
+        return InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("📋 COPY", callback_data="followup:copy"),
+                    InlineKeyboardButton("🛠 Before/After PDF", callback_data="followup:sketch_pdf"),
+                ],
+                [
+                    InlineKeyboardButton("More Detail", callback_data="followup:steps"),
+                    InlineKeyboardButton("Explain Simpler", callback_data="followup:simpler"),
+                ],
+                [
+                    InlineKeyboardButton("Analyze Another", callback_data="followup:new"),
+                    InlineKeyboardButton("Save", callback_data="history:save"),
+                ],
+            ]
+        )
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("📋 COPY", callback_data="followup:copy")],
