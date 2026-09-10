@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from telegram.ext import Application
 
 from bot.config import Settings
+from bot.handlers.sketch_report_handlers import SketchReportHandlers
 from bot.handlers.admin_notification_bot_handlers import AdminNotificationBotHandlers
 from bot.handlers.bot_handlers import BotHandlers
 from bot.handlers.navigation_handlers import NavigationHandlers, NavigationSupportHandlers
@@ -59,5 +60,6 @@ def build_components(settings: Settings) -> BuildWiseComponents:
     pro_handlers.register(telegram)
     navigation_handlers.register(telegram)
     student_learning_handlers.register(telegram)
+    SketchReportHandlers().register(telegram)
     handlers.register(telegram)
     return BuildWiseComponents(telegram, handlers, database, reminders)
