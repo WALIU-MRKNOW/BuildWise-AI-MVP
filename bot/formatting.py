@@ -74,12 +74,33 @@ def clean_student_math(text: str) -> str:
     return cleaned.strip()
 
 
+def clean_sketch_text(text: str) -> str:
+    """Remove presentation markup, not punctuation used in dimensions."""
+    text = re.sub(r"(?m)^\s*#{1,6}\s+", "", text)
+    text = text.replace("**", "").replace("__", "").replace("```", "")
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def sketch_preview(text: str) -> str:
+    # End on a complete paragraph; full content remains available in the PDF.
+    paragraphs = clean_sketch_text(text).split("\n\n")
+    kept = []
+    for paragraph in paragraphs:
+        if len("\n\n".join([*kept, paragraph])) > 1800:
+            break
+        kept.append(paragraph)
+    body = "\n\n".join(kept) or "Your sketch review is ready."
+    return body + "\n\nGet PDF for the complete explanation and review recommendations."
+
+
 def format_response(mode: Mode, model_text: str) -> str:
     kind = None
     cleaned = model_text.strip()
     if mode is Mode.STUDY:
         kind, cleaned = infer_study_answer_kind(cleaned)
         cleaned = clean_student_math(cleaned)
+    elif mode is Mode.SKETCH:
+        cleaned = clean_sketch_text(cleaned)
     else:
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     if not cleaned:
