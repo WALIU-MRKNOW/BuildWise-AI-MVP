@@ -56,6 +56,12 @@ def _jpeg_bytes(image: PILImage.Image) -> bytes:
     return buffer.getvalue()
 
 
+def compress_sketch_source(data: bytes) -> bytes:
+    """Keep only a compact recent sketch copy in Telegram session memory."""
+
+    return _jpeg_bytes(_prepared_image(data))
+
+
 def _annotated_revision(source: PILImage.Image, spec: SketchFixSpec | None) -> PILImage.Image:
     revised = source.copy()
     if spec is None or not spec.changes:
