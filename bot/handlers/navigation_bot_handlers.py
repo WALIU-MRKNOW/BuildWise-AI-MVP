@@ -10,6 +10,7 @@ import logging
 import os
 from time import monotonic
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from uuid import uuid4
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, TelegramError
@@ -21,7 +22,7 @@ from telegram.ext import (
 )
 
 from bot.domain import ConversationTurn, Mode, RequestPayload, UserProfile
-from bot.formatting import format_response, split_for_telegram
+from bot.formatting import format_response, split_for_telegram, sketch_preview
 from bot.handlers.bot_handlers import BotHandlers
 from bot.keyboards import follow_up_keyboard
 from bot.pro.beta_config import validated_admin_telegram_ids, validated_pro_allowlist
@@ -479,6 +480,17 @@ class NavigationBotHandlers(BotHandlers):
             formatted = format_response(mode, answer)
             chunks = split_for_telegram(formatted)
             markup = follow_up_keyboard(mode) if profile.follow_up_buttons else None
+            if mode is Mode.SKETCH:
+                report_key = str(uuid4())
+                reports = context.user_data.setdefault("sketch_reports", {})
+                reports[report_key] = {"answer": answer, "image": payload.image_bytes}
+                while len(reports) > 2:
+                    reports.pop(next(iter(reports)))
+                markup = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Get PDF", callback_data=f"sketchpdf:{report_key}")],
+                    *(markup.inline_keyboard if markup else []),
+                ])
+                chunks = [format_response(mode, sketch_preview(answer))]
             try:
                 await loading.edit_text(
                     chunks[0], reply_markup=markup if len(chunks) == 1 else None
