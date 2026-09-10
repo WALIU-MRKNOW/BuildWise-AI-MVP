@@ -182,9 +182,18 @@ class AdminService:
         )
 
         mode_usage: dict[str, int] = {}
+        activity_counts_30d: dict[str, int] = {}
+        last_activity_30d: dict[str, str] = {}
         for row in mode_rows:
             mode = str(row.get("mode") or "unknown")
             mode_usage[mode] = mode_usage.get(mode, 0) + 1
+            user_id = str(row.get("user_id") or "")
+            if not user_id:
+                continue
+            activity_counts_30d[user_id] = activity_counts_30d.get(user_id, 0) + 1
+            created_at = str(row.get("created_at") or "")
+            if created_at and created_at > last_activity_30d.get(user_id, ""):
+                last_activity_30d[user_id] = created_at
 
         users: list[dict[str, Any]] = []
         for row in user_rows:
@@ -197,12 +206,12 @@ class AdminService:
             users.append(
                 {
                     **row,
-                    "display_name": f"{name} · {university}",
-                    "username": (
-                        f"{username} · ID {telegram_id}" if username else None
-                    ),
+                    "display_name": name,
+                    "username": username or None,
                     "telegram_id": telegram_id,
                     "university": university,
+                    "activity_30d": activity_counts_30d.get(user_id, 0),
+                    "last_activity_30d": last_activity_30d.get(user_id),
                 }
             )
 
@@ -215,17 +224,10 @@ class AdminService:
             university = identity.get("university") or "Institution not added"
             telegram_id = user.get("telegram_id")
             username = str(user.get("username") or "").strip()
-            identity_bits = [name]
-            if username:
-                identity_bits.append(f"@{username}")
-            if telegram_id:
-                identity_bits.append(f"ID {telegram_id}")
-            if university:
-                identity_bits.append(university)
             activity.append(
                 {
                     **row,
-                    "display_name": " · ".join(identity_bits),
+                    "display_name": name,
                     "username": username or None,
                     "telegram_id": telegram_id,
                     "university": university,
@@ -235,11 +237,14 @@ class AdminService:
 
         enriched_tickets: list[dict[str, Any]] = []
         for row in tickets:
-            telegram_id = row.get("telegram_id")
-            display = str(row.get("display_name") or "Student")
-            if telegram_id:
-                display = f"{display} · ID {telegram_id}"
-            enriched_tickets.append({**row, "display_name": display})
+            enriched_tickets.append(
+                {
+                    **row,
+                    "display_name": str(row.get("display_name") or "Student"),
+                    "username": str(row.get("username") or "").strip() or None,
+                    "telegram_id": row.get("telegram_id"),
+                }
+            )
 
         return {
             "summary": {

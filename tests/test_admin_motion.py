@@ -34,6 +34,22 @@ class AdminDashboardMotionTests(unittest.TestCase):
         self.assertNotIn("reward credits", html)
         self.assertNotIn("qualified referrals", html)
 
+    def test_dashboard_exposes_searchable_user_ids_and_richer_activity(self) -> None:
+        html = _dashboard_html("csrf-test")
+
+        self.assertIn("All users", html)
+        self.assertIn("Telegram ID", html)
+        self.assertIn("Institution", html)
+        self.assertIn('id="userSearch"', html)
+        self.assertIn('id="userPrev"', html)
+        self.assertIn('id="userNext"', html)
+        self.assertIn('id="activitySearch"', html)
+        self.assertIn('id="activityMode"', html)
+        self.assertIn("u.telegram_id", html)
+        self.assertIn("a.telegram_id", html)
+        self.assertIn("u.activity_30d", html)
+        self.assertIn("a.category", html)
+
 
 if __name__ == "__main__":
     unittest.main()
