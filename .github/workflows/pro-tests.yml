@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - "security/**"
       - build/buildwise-pro-report-mvp
   pull_request:
   workflow_dispatch:
