@@ -3,6 +3,14 @@
 
 begin;
 
+-- Remove objects attached directly to users before dropping the helper function
+-- or referral columns. Keeping this explicit makes the migration reproducible
+-- without relying on broad CASCADE behavior against the core users table.
+drop trigger if exists users_referral_code_before_insert on public.users;
+alter table public.users drop constraint if exists users_referred_by_fkey;
+drop index if exists public.users_referred_by_idx;
+drop index if exists public.users_referral_code_key;
+
 drop function if exists public.finalize_usage_and_reward_referrer(uuid, integer);
 drop function if exists public.consume_usage_with_referral_credit(uuid, date, integer);
 drop function if exists public.refund_usage_reservation(uuid);
