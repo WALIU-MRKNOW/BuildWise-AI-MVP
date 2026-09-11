@@ -1,18 +1,20 @@
 """Security helpers for the public BuildWise runtime.
 
-These controls are deliberately small, auditable, and dependency-free. They add
-HTTP hardening around the existing Telegram secret-token, admin authentication,
-and Supabase service-role boundaries without changing student or Pro workflows.
+These controls are deliberately small and auditable. They harden the public HTTP
+surface without logging credentials, Telegram payloads, document contents, or
+other student data.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+import logging
 from typing import Final
 
 from fastapi import HTTPException, Request, Response, status
 
 
+logger = logging.getLogger("buildwise.security")
 MAX_TELEGRAM_WEBHOOK_BYTES: Final[int] = 512 * 1024
 
 _SECURITY_HEADERS: Final[dict[str, str]] = {
@@ -31,7 +33,40 @@ _SENSITIVE_PATH_PREFIXES: Final[tuple[str, ...]] = (
     "/admin",
     "/internal/",
     "/telegram/",
+    "/pro",
 )
+_SECURITY_EVENT_STATUSES: Final[frozenset[int]] = frozenset({401, 403, 413, 429})
+
+
+def _security_path(path: str) -> str:
+    """Return a low-cardinality path label without IDs or query values."""
+    if path.startswith("/admin/api/tickets/"):
+        return "/admin/api/tickets/:id"
+    if path.startswith("/admin"):
+        return "/admin"
+    if path.startswith("/telegram/"):
+        return "/telegram"
+    if path.startswith("/internal/"):
+        return "/internal"
+    if path.startswith("/pro"):
+        return "/pro"
+    return "/other"
+
+
+async def log_security_events(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    """Log security-relevant response classes without secrets or user content."""
+    response = await call_next(request)
+    if response.status_code in _SECURITY_EVENT_STATUSES:
+        logger.warning(
+            "security_event method=%s path=%s status=%s",
+            request.method,
+            _security_path(request.url.path),
+            response.status_code,
+        )
+    return response
 
 
 async def add_security_headers(
@@ -39,7 +74,6 @@ async def add_security_headers(
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
     """Apply defense-in-depth browser/proxy headers to every HTTP response."""
-
     response = await call_next(request)
     for name, value in _SECURITY_HEADERS.items():
         # Route-specific policies such as the admin dashboard CSP remain stronger
@@ -53,7 +87,6 @@ async def add_security_headers(
 
 def validate_json_request(request: Request, *, max_bytes: int) -> None:
     """Reject obviously invalid or oversized JSON requests before parsing them."""
-
     content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
     if content_type != "application/json":
         raise HTTPException(
@@ -79,7 +112,6 @@ def validate_json_request(request: Request, *, max_bytes: int) -> None:
 
 async def read_limited_body(request: Request, *, max_bytes: int) -> bytes:
     """Read a request body with a hard byte cap even when Content-Length is absent."""
-
     body = bytearray()
     async for chunk in request.stream():
         body.extend(chunk)
