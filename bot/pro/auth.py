@@ -45,7 +45,9 @@ def validate_pro_configuration(settings: Settings) -> None:
         )
     _secret(settings.buildwise_pro_access_key, "BUILDWISE_PRO_ACCESS_KEY", min_length=24)
     _secret(settings.buildwise_pro_session_secret, "BUILDWISE_PRO_SESSION_SECRET", min_length=32)
-    _CONFIGURED_SETTINGS = settings
+    # Only the real webhook runtime uses the durable production counter. Unit tests
+    # and local preview construction stay isolated and network-free.
+    _CONFIGURED_SETTINGS = settings if settings.runtime_mode == "webhook" else None
 
 
 def access_key_matches(settings: Settings, supplied: str) -> bool:
@@ -105,12 +107,7 @@ def _supabase_headers(settings: Settings) -> dict[str, str]:
 
 
 class PreviewUsageLimiter:
-    """Atomic Pro limiter in production, with an in-memory fallback for unit tests.
-
-    ``create_pro_router`` calls ``validate_pro_configuration`` before constructing
-    this class, which supplies the production Settings object. Direct unit-test
-    construction intentionally remains isolated and network-free.
-    """
+    """Atomic Pro limiter in production, with an in-memory fallback for tests."""
 
     def __init__(self) -> None:
         self._settings = _CONFIGURED_SETTINGS
