@@ -11,17 +11,13 @@ from bot.handlers.sketch_report_handlers import SketchReportHandlers
 from bot.handlers.admin_notification_bot_handlers import AdminNotificationBotHandlers
 from bot.handlers.bot_handlers import BotHandlers
 from bot.handlers.navigation_handlers import NavigationHandlers, NavigationSupportHandlers
-from bot.handlers.referral_handlers import ReferralHandlers
 from bot.handlers.student_learning_handlers import StudentLearningHandlers
 from bot.pro.telegram_beta_handlers import TelegramProBetaHandlers
 from bot.router import RequestRouter
 from bot.services.admin_service import AdminService
-from bot.services.referral_service import ReferralService
+from bot.services.openai_service import OpenAIService
 from bot.services.reminder_service import ReminderService
-from bot.services.reward_usage_service import (
-    RewardAwareOpenAIService,
-    RewardAwareSupabaseService,
-)
+from bot.services.reward_usage_service import StudentAccessSupabaseService
 from bot.services.supabase_service import SupabaseService
 
 
@@ -34,17 +30,16 @@ class BuildWiseComponents:
 
 
 def build_components(settings: Settings) -> BuildWiseComponents:
-    database = RewardAwareSupabaseService(settings)
+    database = StudentAccessSupabaseService(settings)
     reminders = ReminderService(database)
     handlers = AdminNotificationBotHandlers(
         settings,
-        RewardAwareOpenAIService(settings, database),  # type: ignore[arg-type]
+        OpenAIService(settings),
         RequestRouter(),
         database,
         reminders,
     )
     support_handlers = NavigationSupportHandlers(database, AdminService(settings))
-    referral_handlers = ReferralHandlers(ReferralService(settings), handlers)
     student_learning_handlers = StudentLearningHandlers()
     pro_handlers = TelegramProBetaHandlers(settings)
     navigation_handlers = NavigationHandlers(handlers, pro_handlers)
@@ -53,9 +48,8 @@ def build_components(settings: Settings) -> BuildWiseComponents:
         .token(settings.telegram_bot_token.get_secret_value())
         .build()
     )
-    # Specific referral/support/Pro/navigation/student-learning callbacks are
-    # registered before the student catch-all so existing workflows remain isolated.
-    referral_handlers.register(telegram)
+    # Support/Pro/navigation/student-learning callbacks are registered before the
+    # student catch-all so existing workflows remain isolated.
     support_handlers.register(telegram)
     pro_handlers.register(telegram)
     navigation_handlers.register(telegram)
