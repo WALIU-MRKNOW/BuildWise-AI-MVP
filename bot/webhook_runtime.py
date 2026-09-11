@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import hmac
+import json
 import logging
 import os
 from types import SimpleNamespace
@@ -20,6 +21,12 @@ from bot.app import BuildWiseComponents, build_components
 from bot.config import Settings, load_settings
 from bot.pro.router import create_pro_router
 from bot.runtime import configure_logging
+from bot.security import (
+    MAX_TELEGRAM_WEBHOOK_BYTES,
+    add_security_headers,
+    read_limited_body,
+    validate_json_request,
+)
 
 
 def _required_secret(value: object, name: str) -> str:
@@ -94,8 +101,10 @@ def create_webhook_api(settings: Settings) -> FastAPI:
         version="1.6.0",
         docs_url=None,
         redoc_url=None,
+        openapi_url=None,
         lifespan=lifespan,
     )
+    api.middleware("http")(add_security_headers)
 
     @api.get("/")
     async def root() -> dict[str, str]:
@@ -117,14 +126,25 @@ def create_webhook_api(settings: Settings) -> FastAPI:
         request: Request,
         x_telegram_bot_api_secret_token: str | None = Header(default=None),
     ) -> Response:
+        # Telegram's secret header is the primary authentication boundary for
+        # this public endpoint. Compare in constant time and do not log it.
         if not x_telegram_bot_api_secret_token or not hmac.compare_digest(
             x_telegram_bot_api_secret_token, webhook_secret
         ):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
+        validate_json_request(request, max_bytes=MAX_TELEGRAM_WEBHOOK_BYTES)
         try:
-            payload = await request.json()
+            raw_body = await read_limited_body(
+                request, max_bytes=MAX_TELEGRAM_WEBHOOK_BYTES
+            )
+            payload = json.loads(raw_body)
+            if not isinstance(payload, dict):
+                raise ValueError("Telegram update must be a JSON object")
             update = Update.de_json(payload, components.telegram.bot)
-        except (TypeError, ValueError) as exc:
+            if update is None:
+                raise ValueError("Telegram update was empty")
+        except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid Telegram update",
@@ -166,4 +186,5 @@ def run() -> None:
         port=settings.port,
         log_level=settings.log_level.lower(),
         access_log=False,
+        server_header=False,
     )
