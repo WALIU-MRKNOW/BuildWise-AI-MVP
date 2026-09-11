@@ -24,6 +24,7 @@ from bot.runtime import configure_logging
 from bot.security import (
     MAX_TELEGRAM_WEBHOOK_BYTES,
     add_security_headers,
+    log_security_events,
     read_limited_body,
     validate_json_request,
 )
@@ -105,6 +106,7 @@ def create_webhook_api(settings: Settings) -> FastAPI:
         lifespan=lifespan,
     )
     api.middleware("http")(add_security_headers)
+    api.middleware("http")(log_security_events)
 
     @api.get("/")
     async def root() -> dict[str, str]:
