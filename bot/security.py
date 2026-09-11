@@ -19,11 +19,19 @@ _SECURITY_HEADERS: Final[dict[str, str]] = {
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
+    "X-Permitted-Cross-Domain-Policies": "none",
     "Referrer-Policy": "no-referrer",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-origin",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
 }
+
+_SENSITIVE_PATH_PREFIXES: Final[tuple[str, ...]] = (
+    "/admin",
+    "/internal/",
+    "/telegram/",
+)
 
 
 async def add_security_headers(
@@ -34,7 +42,12 @@ async def add_security_headers(
 
     response = await call_next(request)
     for name, value in _SECURITY_HEADERS.items():
+        # Route-specific policies such as the admin dashboard CSP remain stronger
+        # and are never overwritten here.
         response.headers.setdefault(name, value)
+    if request.url.path.startswith(_SENSITIVE_PATH_PREFIXES):
+        response.headers.setdefault("Cache-Control", "no-store, max-age=0")
+        response.headers.setdefault("Pragma", "no-cache")
     return response
 
 
