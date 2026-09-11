@@ -3,6 +3,7 @@ name: pro-tests
 on:
   push:
     branches:
+      - main
       - build/buildwise-pro-report-mvp
   pull_request:
   workflow_dispatch:
