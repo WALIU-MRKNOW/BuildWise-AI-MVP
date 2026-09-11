@@ -1,6 +1,7 @@
 """BuildWise AI instructions for the three supported workflows."""
 
 from bot.domain import Mode
+from bot.visual_teaching import visual_teaching_prompt
 
 
 BASE_PROMPT = """
@@ -108,7 +109,11 @@ permit approval. State what an architect or engineer should verify.
 
 
 def system_prompt(mode: Mode) -> str:
-    return f"{BASE_PROMPT}\n\n{MODE_PROMPTS[mode]}"
+    parts = [BASE_PROMPT, MODE_PROMPTS[mode]]
+    visual_rules = visual_teaching_prompt(mode)
+    if visual_rules:
+        parts.append(visual_rules)
+    return "\n\n".join(parts)
 
 
 def default_user_request(mode: Mode, *, has_image: bool, has_pdf: bool) -> str:
