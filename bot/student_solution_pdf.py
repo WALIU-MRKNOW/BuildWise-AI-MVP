@@ -12,7 +12,14 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    Paragraph,
+    Preformatted,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 from bot.formatting import clean_student_math
 from bot.study_experience import StudyRequestKind, infer_study_answer_kind
@@ -30,30 +37,67 @@ _SYMBOL_REPLACEMENTS = {
     "₦": "NGN ",
     "•": "-",
     "→": "->",
+    "←": "<-",
+    "↑": "^",
+    "↓": "v",
     "—": "-",
     "–": "-",
     "’": "'",
     "“": '"',
     "”": '"',
+    "│": "|",
+    "║": "|",
+    "─": "-",
+    "═": "=",
+    "┌": "+",
+    "┐": "+",
+    "└": "+",
+    "┘": "+",
+    "├": "+",
+    "┤": "+",
+    "┬": "+",
+    "┴": "+",
+    "┼": "+",
+    "╔": "+",
+    "╗": "+",
+    "╚": "+",
+    "╝": "+",
+    "╠": "+",
+    "╣": "+",
+    "╦": "+",
+    "╩": "+",
+    "╬": "+",
 }
 
 
-def _pdf_safe_text(value: str) -> str:
+def _ascii_pdf_text(value: str) -> str:
     text = value
     for source, target in _SYMBOL_REPLACEMENTS.items():
         text = text.replace(source, target)
-    # ReportLab's built-in Helvetica does not contain emoji glyphs. Remove emoji
-    # and other unsupported symbols rather than producing black squares.
+    # ReportLab's built-in Helvetica/Courier fonts do not contain emoji glyphs.
+    # Remove unsupported symbols rather than producing black squares.
     text = unicodedata.normalize("NFKD", text)
-    text = text.encode("ascii", "ignore").decode("ascii")
+    return text.encode("ascii", "ignore").decode("ascii")
+
+
+def _pdf_safe_text(value: str) -> str:
+    text = _ascii_pdf_text(value)
     text = re.sub(r"[ \t]+", " ", text)
     return text.strip()
+
+
+def _pdf_safe_diagram_text(value: str) -> str:
+    """Convert diagram glyphs to PDF-safe ASCII without collapsing alignment."""
+
+    text = _ascii_pdf_text(value).replace("\t", "    ")
+    return text.rstrip()
 
 
 def _is_heading(line: str) -> bool:
     plain = re.sub(r"^[^A-Za-z0-9]+", "", line).strip()
     labels = (
         "Problem",
+        "Diagram",
         "Given Data",
         "Formula / Principle",
         "Why This Formula",
@@ -67,6 +111,11 @@ def _is_heading(line: str) -> bool:
         "Exam / Study Tip",
     )
     return any(plain.lower().startswith(label.lower()) for label in labels)
+
+
+def _is_diagram_heading(line: str) -> bool:
+    plain = re.sub(r"^[^A-Za-z0-9]+", "", line).strip().lower()
+    return plain.startswith("diagram")
 
 
 def render_student_solution_pdf(question: str, answer: str) -> bytes:
@@ -109,6 +158,17 @@ def render_student_solution_pdf(question: str, answer: str) -> bytes:
         spaceBefore=8,
         spaceAfter=4,
     )
+    diagram_style = ParagraphStyle(
+        "StudentDiagram",
+        parent=styles["Code"],
+        fontName="Courier",
+        fontSize=8.5,
+        leading=11,
+        leftIndent=4,
+        rightIndent=4,
+        spaceBefore=2,
+        spaceAfter=7,
+    )
     meta_style = ParagraphStyle(
         "StudentMeta",
         parent=body_style,
@@ -139,13 +199,44 @@ def render_student_solution_pdf(question: str, answer: str) -> bytes:
     )
     story.extend([question_box, Spacer(1, 5 * mm)])
 
+    in_diagram = False
+    diagram_lines: list[str] = []
+
+    def flush_diagram() -> None:
+        if not diagram_lines:
+            return
+        while diagram_lines and not diagram_lines[-1]:
+            diagram_lines.pop()
+        if diagram_lines:
+            story.append(
+                Preformatted(
+                    escape("\n".join(diagram_lines)),
+                    diagram_style,
+                    maxLineLength=92,
+                )
+            )
+        diagram_lines.clear()
+
     for raw_line in body.splitlines():
-        line = _pdf_safe_text(raw_line)
-        if not line:
+        normal_line = _pdf_safe_text(raw_line)
+        if normal_line and _is_heading(normal_line):
+            if in_diagram:
+                flush_diagram()
+            in_diagram = _is_diagram_heading(normal_line)
+            story.append(Paragraph(escape(normal_line), heading_style))
+            continue
+
+        if in_diagram:
+            diagram_lines.append(_pdf_safe_diagram_text(raw_line))
+            continue
+
+        if not normal_line:
             story.append(Spacer(1, 2 * mm))
             continue
-        style = heading_style if _is_heading(line) else body_style
-        story.append(Paragraph(escape(line), style))
+        story.append(Paragraph(escape(normal_line), body_style))
+
+    if in_diagram:
+        flush_diagram()
 
     story.extend(
         [
