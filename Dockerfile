@@ -7,10 +7,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && groupadd --system buildwise \
+    && useradd --system --gid buildwise --create-home --home-dir /home/buildwise buildwise
 
 COPY bot ./bot
 COPY main.py .
+
+RUN chown -R buildwise:buildwise /app
+USER buildwise
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \

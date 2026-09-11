@@ -47,8 +47,16 @@ logger = logging.getLogger(__name__)
 
 
 def _client_fingerprint(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
-    raw = forwarded or (request.client.host if request.client else "unknown")
+    """Return a privacy-safe stable client identifier for this process.
+
+    Railway documents ``X-Real-IP`` as the edge-provided remote client address.
+    Do not trust user-controlled forwarding chains such as ``X-Forwarded-For``
+    for an authentication rate-limit key. Outside Railway, fall back to the
+    socket peer address exposed by the ASGI server.
+    """
+
+    railway_client_ip = request.headers.get("x-real-ip", "").strip()
+    raw = railway_client_ip or (request.client.host if request.client else "unknown")
     return hashlib.blake2s(raw.encode("utf-8"), key=_SECURITY_LOG_KEY, digest_size=8).hexdigest()
 
 
