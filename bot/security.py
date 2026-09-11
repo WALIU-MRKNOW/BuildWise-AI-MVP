@@ -7,10 +7,10 @@ other student data.
 
 from __future__ import annotations
 
-import asyncio
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
 import logging
+from threading import Lock
 from time import monotonic
 from typing import Final
 
@@ -42,7 +42,7 @@ _SENSITIVE_PATH_PREFIXES: Final[tuple[str, ...]] = (
 )
 _SECURITY_EVENT_STATUSES: Final[frozenset[int]] = frozenset({401, 403, 413, 429})
 _auth_failures: defaultdict[tuple[str, str], deque[float]] = defaultdict(deque)
-_auth_failure_lock = asyncio.Lock()
+_auth_failure_lock = Lock()
 
 
 def _security_path(path: str) -> str:
@@ -76,22 +76,22 @@ def _client_key(request: Request) -> str:
     return request.client.host[:128]
 
 
-async def _too_many_auth_failures(request: Request, surface: str) -> bool:
+def _too_many_auth_failures(request: Request, surface: str) -> bool:
     key = (_client_key(request), surface)
     now = monotonic()
     cutoff = now - AUTH_FAILURE_WINDOW_SECONDS
-    async with _auth_failure_lock:
+    with _auth_failure_lock:
         failures = _auth_failures[key]
         while failures and failures[0] < cutoff:
             failures.popleft()
         return len(failures) >= AUTH_FAILURE_LIMIT
 
 
-async def _record_auth_result(request: Request, surface: str, status_code: int) -> None:
+def _record_auth_result(request: Request, surface: str, status_code: int) -> None:
     key = (_client_key(request), surface)
     now = monotonic()
     cutoff = now - AUTH_FAILURE_WINDOW_SECONDS
-    async with _auth_failure_lock:
+    with _auth_failure_lock:
         failures = _auth_failures[key]
         while failures and failures[0] < cutoff:
             failures.popleft()
@@ -110,7 +110,7 @@ async def log_security_events(
 ) -> Response:
     """Rate-limit repeated auth failures and log security events without secrets."""
     surface = _auth_surface(request.url.path)
-    if surface is not None and await _too_many_auth_failures(request, surface):
+    if surface is not None and _too_many_auth_failures(request, surface):
         logger.warning(
             "security_event method=%s path=%s status=429 reason=auth_rate_limit",
             request.method,
@@ -126,7 +126,7 @@ async def log_security_events(
 
     response = await call_next(request)
     if surface is not None:
-        await _record_auth_result(request, surface, response.status_code)
+        _record_auth_result(request, surface, response.status_code)
     if response.status_code in _SECURITY_EVENT_STATUSES:
         logger.warning(
             "security_event method=%s path=%s status=%s",
