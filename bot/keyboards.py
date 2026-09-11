@@ -45,7 +45,7 @@ def follow_up_keyboard(mode: Mode) -> InlineKeyboardMarkup:
 
 
 def sketch_analysis_keyboard(report_key: str, *, can_generate_elevation: bool) -> InlineKeyboardMarkup:
-    """Two-action sketch surface: elevation when possible, plus the report PDF."""
+    """Two-action sketch surface: front elevation when possible, plus PDF."""
 
     if can_generate_elevation:
         return InlineKeyboardMarkup(
@@ -63,12 +63,41 @@ def sketch_analysis_keyboard(report_key: str, *, can_generate_elevation: bool) -
 
 
 def elevation_result_keyboard(report_key: str) -> InlineKeyboardMarkup:
-    """Keep generated-elevation actions compact and tied to the originating sketch."""
+    """Front elevation result: keep only the next advanced step and PDF."""
+
+    return InlineKeyboardMarkup(
+        [[
+            InlineKeyboardButton("🧱 More Views", callback_data=f"elevmenu:{report_key}"),
+            InlineKeyboardButton("📄 Add to PDF", callback_data=f"sketchpdf:{report_key}"),
+        ]]
+    )
+
+
+def more_views_keyboard(report_key: str) -> InlineKeyboardMarkup:
+    """Advanced sketch submenu; complexity is hidden until the student asks for it."""
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("⬅️ Left Side", callback_data=f"elevview:left:{report_key}"),
+                InlineKeyboardButton("➡️ Right Side", callback_data=f"elevview:right:{report_key}"),
+            ],
+            [
+                InlineKeyboardButton("🔙 Rear", callback_data=f"elevview:rear:{report_key}"),
+                InlineKeyboardButton("🔝 Top / Roof", callback_data=f"elevview:top:{report_key}"),
+            ],
+            [InlineKeyboardButton("↩️ Back", callback_data=f"elevback:{report_key}")],
+        ]
+    )
+
+
+def view_result_keyboard(report_key: str, view: str) -> InlineKeyboardMarkup:
+    """Generated side/rear/top view actions remain at two buttons."""
 
     return InlineKeyboardMarkup(
         [[
             InlineKeyboardButton("📄 Add to PDF", callback_data=f"sketchpdf:{report_key}"),
-            InlineKeyboardButton("🔁 Regenerate", callback_data=f"elevregen:{report_key}"),
+            InlineKeyboardButton("🔁 Regenerate", callback_data=f"elevregen:{view}:{report_key}"),
         ]]
     )
 
