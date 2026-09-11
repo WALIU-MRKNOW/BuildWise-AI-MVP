@@ -27,39 +27,20 @@ def home_keyboard(*, timezone_confirmed: bool) -> InlineKeyboardMarkup:
 
 
 def follow_up_keyboard(mode: Mode) -> InlineKeyboardMarkup:
+    """Keep the primary answer surface to two actions at most."""
+
     if mode is Mode.STUDY:
         return InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton("📋 COPY", callback_data="followup:copy"),
-                    InlineKeyboardButton("📄 Get Solution PDF", callback_data="followup:pdf"),
-                ],
-                [
-                    InlineKeyboardButton("Show Steps", callback_data="followup:steps"),
-                    InlineKeyboardButton("Explain More Simply", callback_data="followup:simpler"),
-                ],
-                [
-                    InlineKeyboardButton("Practice Similar Question", callback_data="followup:similar"),
-                    InlineKeyboardButton("Check My Answer", callback_data="followup:check"),
-                ],
-                [
-                    InlineKeyboardButton("Ask Another", callback_data="followup:new"),
-                    InlineKeyboardButton("Save", callback_data="history:save"),
-                ],
-            ]
+            [[
+                InlineKeyboardButton("📋 Copy", callback_data="followup:copy"),
+                InlineKeyboardButton("📄 PDF", callback_data="followup:pdf"),
+            ]]
         )
     return InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("📋 COPY", callback_data="followup:copy")],
-            [
-                InlineKeyboardButton("More Detail", callback_data="followup:steps"),
-                InlineKeyboardButton("Explain Simpler", callback_data="followup:simpler"),
-            ],
-            [
-                InlineKeyboardButton("Analyze Another", callback_data="followup:new"),
-                InlineKeyboardButton("Save", callback_data="history:save"),
-            ],
-        ]
+        [[
+            InlineKeyboardButton("📋 Copy", callback_data="followup:copy"),
+            InlineKeyboardButton("🔄 Analyze Another", callback_data="followup:new"),
+        ]]
     )
 
 
