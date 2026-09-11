@@ -1,13 +1,18 @@
 """Security helpers for the public BuildWise runtime.
 
-These controls are deliberately small, auditable, and dependency-free. They add
-HTTP hardening around the existing Telegram secret-token, admin authentication,
-and Supabase service-role boundaries without changing student or Pro workflows.
+These controls are deliberately small and auditable. They harden Telegram,
+admin, and Pro HTTP boundaries without changing student workflows.
 """
 
 from __future__ import annotations
 
+import asyncio
+from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
+import hashlib
+import logging
+import secrets
+from time import monotonic
 from typing import Final
 
 from fastapi import HTTPException, Request, Response, status
@@ -32,6 +37,94 @@ _SENSITIVE_PATH_PREFIXES: Final[tuple[str, ...]] = (
     "/internal/",
     "/telegram/",
 )
+_AUTH_FAILURE_WINDOW_SECONDS: Final[int] = 15 * 60
+_PER_CLIENT_AUTH_FAILURE_LIMIT: Final[int] = 8
+_GLOBAL_AUTH_FAILURE_LIMIT: Final[int] = 120
+_SECURITY_LOG_KEY = secrets.token_bytes(16)
+_AUTH_FAILURES: dict[str, deque[float]] = defaultdict(deque)
+_AUTH_FAILURE_LOCK = asyncio.Lock()
+logger = logging.getLogger(__name__)
+
+
+def _client_fingerprint(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+    raw = forwarded or (request.client.host if request.client else "unknown")
+    return hashlib.blake2s(raw.encode("utf-8"), key=_SECURITY_LOG_KEY, digest_size=8).hexdigest()
+
+
+def _auth_bucket_path(path: str) -> str | None:
+    if path.startswith("/admin"):
+        return "admin"
+    if path == "/pro/login":
+        return "pro-login"
+    return None
+
+
+async def _auth_blocked(bucket: str, fingerprint: str) -> bool:
+    now = monotonic()
+    cutoff = now - _AUTH_FAILURE_WINDOW_SECONDS
+    async with _AUTH_FAILURE_LOCK:
+        for key in (f"{bucket}:{fingerprint}", f"{bucket}:*"):
+            entries = _AUTH_FAILURES[key]
+            while entries and entries[0] < cutoff:
+                entries.popleft()
+        return (
+            len(_AUTH_FAILURES[f"{bucket}:{fingerprint}"]) >= _PER_CLIENT_AUTH_FAILURE_LIMIT
+            or len(_AUTH_FAILURES[f"{bucket}:*"]) >= _GLOBAL_AUTH_FAILURE_LIMIT
+        )
+
+
+async def _record_auth_failure(bucket: str, fingerprint: str) -> None:
+    now = monotonic()
+    async with _AUTH_FAILURE_LOCK:
+        _AUTH_FAILURES[f"{bucket}:{fingerprint}"].append(now)
+        _AUTH_FAILURES[f"{bucket}:*"].append(now)
+
+
+async def security_guard_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    """Throttle repeated auth failures and emit privacy-safe security events."""
+
+    path = request.url.path
+    fingerprint = _client_fingerprint(request)
+    bucket = _auth_bucket_path(path)
+    if bucket and await _auth_blocked(bucket, fingerprint):
+        logger.warning(
+            "security_event event=auth_rate_limited surface=%s client=%s",
+            bucket,
+            fingerprint,
+        )
+        return Response(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(_AUTH_FAILURE_WINDOW_SECONDS)},
+        )
+
+    response = await call_next(request)
+
+    if bucket and response.status_code in {
+        status.HTTP_401_UNAUTHORIZED,
+        status.HTTP_403_FORBIDDEN,
+    }:
+        await _record_auth_failure(bucket, fingerprint)
+        logger.warning(
+            "security_event event=auth_failed surface=%s status=%s client=%s",
+            bucket,
+            response.status_code,
+            fingerprint,
+        )
+    elif path in {"/telegram/webhook", "/internal/reminders"} and response.status_code in {
+        status.HTTP_401_UNAUTHORIZED,
+        status.HTTP_403_FORBIDDEN,
+    }:
+        logger.warning(
+            "security_event event=protected_endpoint_rejected surface=%s status=%s client=%s",
+            path,
+            response.status_code,
+            fingerprint,
+        )
+    return response
 
 
 async def add_security_headers(
