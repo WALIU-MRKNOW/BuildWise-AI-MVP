@@ -1,8 +1,7 @@
 import unittest
 
-from bot.domain import UserProfile
+from bot.domain import Mode, UserProfile
 from bot.keyboards import follow_up_keyboard
-from bot.domain import Mode
 
 
 class UniversalFollowUpButtonTests(unittest.TestCase):
@@ -24,11 +23,19 @@ class UniversalFollowUpButtonTests(unittest.TestCase):
         )
         self.assertTrue(profile.follow_up_buttons)
 
-    def test_study_keyboard_contains_copy_and_pdf(self) -> None:
+    def test_study_keyboard_is_copy_and_pdf_only(self) -> None:
         markup = follow_up_keyboard(Mode.STUDY)
-        labels = [button.text for row in markup.inline_keyboard for button in row]
-        self.assertIn("📋 COPY", labels)
-        self.assertIn("📄 Get Solution PDF", labels)
+        buttons = [button for row in markup.inline_keyboard for button in row]
+        self.assertEqual([button.text for button in buttons], ["📋 Copy", "📄 PDF"])
+        self.assertEqual([button.callback_data for button in buttons], ["followup:copy", "followup:pdf"])
+        self.assertEqual(len(buttons), 2)
+
+    def test_non_study_keyboard_has_at_most_two_primary_actions(self) -> None:
+        markup = follow_up_keyboard(Mode.BUILDING)
+        buttons = [button for row in markup.inline_keyboard for button in row]
+        self.assertEqual(len(buttons), 2)
+        self.assertEqual(buttons[0].text, "📋 Copy")
+        self.assertEqual(buttons[1].text, "🔄 Analyze Another")
 
 
 if __name__ == "__main__":
