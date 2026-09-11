@@ -25,6 +25,7 @@ from bot.security import (
     MAX_TELEGRAM_WEBHOOK_BYTES,
     add_security_headers,
     read_limited_body,
+    security_guard_middleware,
     validate_json_request,
 )
 
@@ -105,6 +106,7 @@ def create_webhook_api(settings: Settings) -> FastAPI:
         lifespan=lifespan,
     )
     api.middleware("http")(add_security_headers)
+    api.middleware("http")(security_guard_middleware)
 
     @api.get("/")
     async def root() -> dict[str, str]:
