@@ -66,12 +66,12 @@ def navigation_home_keyboard(
     rows = [
         [InlineKeyboardButton("🎓 Ask BuildWise", callback_data="home:study")],
         [
-            InlineKeyboardButton("📝 Practice", callback_data="home:practice"),
+            InlineKeyboardButton("🧠 Practice", callback_data="home:practice"),
             InlineKeyboardButton("📄 Analyze PDF", callback_data="home:pdf"),
         ],
         [
-            InlineKeyboardButton("🖼 Sketch / Image", callback_data="home:sketch"),
-            InlineKeyboardButton("🏗 Building Photo", callback_data="home:building"),
+            InlineKeyboardButton("📐 Analyze Sketch", callback_data="home:sketch"),
+            InlineKeyboardButton("🏗 Analyze Building", callback_data="home:building"),
         ],
         [InlineKeyboardButton("🎯 Study Tools", callback_data="home:studytools")],
         [
@@ -486,10 +486,12 @@ class NavigationBotHandlers(BotHandlers):
                 reports[report_key] = {"answer": answer, "image": payload.image_bytes}
                 while len(reports) > 2:
                     reports.pop(next(iter(reports)))
-                markup = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Get PDF", callback_data=f"sketchpdf:{report_key}")],
-                    *(markup.inline_keyboard if markup else []),
-                ])
+                markup = InlineKeyboardMarkup(
+                    [[
+                        InlineKeyboardButton("📋 Copy", callback_data="followup:copy"),
+                        InlineKeyboardButton("📄 PDF", callback_data=f"sketchpdf:{report_key}"),
+                    ]]
+                )
                 chunks = [format_response(mode, sketch_preview(answer))]
             try:
                 await loading.edit_text(
