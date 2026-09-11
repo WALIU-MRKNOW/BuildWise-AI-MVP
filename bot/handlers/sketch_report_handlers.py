@@ -14,11 +14,22 @@ from bot.domain import Mode
 from bot.student_solution_pdf import _pdf_safe_text
 
 
+_VIEW_HEADINGS = {
+    "front": "Concept front elevation",
+    "left": "Left side elevation",
+    "right": "Right side elevation",
+    "rear": "Rear elevation",
+    "top": "Top / roof view",
+}
+_VIEW_ORDER = ("front", "left", "right", "rear", "top")
+
+
 def render_sketch_report(
     answer: str,
     image_bytes: bytes | None = None,
     elevation_bytes: bytes | None = None,
     elevation_assumptions: list[str] | None = None,
+    generated_views: dict[str, bytes] | None = None,
 ) -> bytes:
     output = BytesIO()
     styles = getSampleStyleSheet()
@@ -46,27 +57,38 @@ def render_sketch_report(
         )
         story.append(Spacer(1, 8))
 
-    if elevation_bytes:
-        story.extend(
-            [
-                Spacer(1, 10),
-                Paragraph("Concept front elevation", styles["Heading2"]),
-            ]
-        )
-        elevation = Image(BytesIO(elevation_bytes))
-        elevation._restrictSize(500, 330)
-        story.extend([elevation, Spacer(1, 10)])
+    views: dict[str, bytes] = {}
+    if isinstance(generated_views, dict):
+        for name in _VIEW_ORDER:
+            value = generated_views.get(name)
+            if isinstance(value, bytes) and value:
+                views[name] = value
+    # Backward compatibility with front elevations generated before multi-view.
+    if "front" not in views and isinstance(elevation_bytes, bytes) and elevation_bytes:
+        views["front"] = elevation_bytes
+
+    if views:
+        story.extend([Spacer(1, 10), Paragraph("Generated Building Views", styles["Heading2"])])
+        for name in _VIEW_ORDER:
+            view_bytes = views.get(name)
+            if not view_bytes:
+                continue
+            story.append(Paragraph(_VIEW_HEADINGS[name], styles["Heading3"]))
+            figure = Image(BytesIO(view_bytes))
+            figure._restrictSize(500, 330)
+            story.extend([figure, Spacer(1, 12)])
+
         assumptions = elevation_assumptions or []
         if assumptions:
             story.append(Paragraph("Visualization assumptions", styles["Heading3"]))
-            for assumption in assumptions[:8]:
+            for assumption in assumptions[:10]:
                 safe = escape(_pdf_safe_text(str(assumption)))
                 story.append(Paragraph(f"- {safe}", styles["BodyText"]))
         story.extend(
             [
                 Spacer(1, 8),
                 Paragraph(
-                    "Conceptual elevation for educational visualization only. Verify all dimensions and design details before submission or construction.",
+                    "Generated views are conceptual educational visualizations of the same interpreted building. Verify all dimensions and design details before submission or construction.",
                     styles["BodyText"],
                 ),
             ]
@@ -108,6 +130,7 @@ class SketchReportHandlers:
                 record.get("image"),
                 record.get("elevation"),
                 record.get("elevation_assumptions"),
+                record.get("views"),
             )
         except Exception as exc:
             logging.getLogger(__name__).warning(
@@ -117,9 +140,17 @@ class SketchReportHandlers:
                 "The PDF could not be prepared. Please try again or submit a smaller image."
             )
             return
-        filename = (
-            "BuildWise-sketch-elevation-report.pdf"
-            if record.get("elevation")
-            else "BuildWise-sketch-review.pdf"
+
+        views = record.get("views")
+        generated_count = (
+            sum(1 for value in views.values() if isinstance(value, bytes) and value)
+            if isinstance(views, dict)
+            else 0
         )
+        if generated_count > 1:
+            filename = "BuildWise-sketch-multiview-report.pdf"
+        elif generated_count == 1 or record.get("elevation"):
+            filename = "BuildWise-sketch-elevation-report.pdf"
+        else:
+            filename = "BuildWise-sketch-review.pdf"
         await query.message.reply_document(document=BytesIO(data), filename=filename)
