@@ -1,9 +1,10 @@
-"""Sketch elevation extension layered on the existing production Telegram handlers."""
+"""Sketch multi-view extension layered on the existing production Telegram handlers."""
 
 from __future__ import annotations
 
 import asyncio
 from io import BytesIO
+import json
 import logging
 from time import monotonic
 from uuid import uuid4
@@ -15,14 +16,24 @@ from telegram.ext import ContextTypes
 from bot.domain import ConversationTurn, Mode, RequestPayload, UserProfile
 from bot.formatting import format_response, sketch_preview
 from bot.handlers.admin_notification_bot_handlers import AdminNotificationBotHandlers
-from bot.keyboards import elevation_result_keyboard, sketch_analysis_keyboard
+from bot.keyboards import (
+    elevation_result_keyboard,
+    more_views_keyboard,
+    sketch_analysis_keyboard,
+    view_result_keyboard,
+)
 from bot.services.openai_service import AIServiceError
 from bot.services.sketch_elevation_service import (
     SketchElevationError,
     SketchElevationService,
 )
 from bot.services.supabase_service import SupabaseError
-from bot.sketch_elevation import elevation_caption
+from bot.sketch_elevation import (
+    SKETCH_VIEW_LABELS,
+    SketchElevationSpec,
+    normalize_sketch_view,
+    view_caption,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +44,25 @@ _SUPPORTED_ELEVATION_MIME_TYPES = {
     "image/webp",
 }
 
+_VIEW_LOADING = {
+    "front": "🏠 Generating front elevation...",
+    "left": "⬅️ Generating left side elevation...",
+    "right": "➡️ Generating right side elevation...",
+    "rear": "🔙 Generating rear elevation...",
+    "top": "🔝 Generating top / roof view...",
+}
+
+_VIEW_FILENAMES = {
+    "front": "BuildWise-front-elevation.png",
+    "left": "BuildWise-left-side-elevation.png",
+    "right": "BuildWise-right-side-elevation.png",
+    "rear": "BuildWise-rear-elevation.png",
+    "top": "BuildWise-top-roof-view.png",
+}
+
 
 class ElevationBotHandlers(AdminNotificationBotHandlers):
-    """Add real sketch-to-front-elevation generation without changing Pro/Admin flows."""
+    """Add consistent sketch multi-view generation without changing Pro/Admin flows."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -46,41 +73,135 @@ class ElevationBotHandlers(AdminNotificationBotHandlers):
     ) -> None:
         query = update.callback_query
         data = (query.data or "") if query else ""
-        if data.startswith("elevgen:") or data.startswith("elevregen:"):
+        if data.startswith(("elevgen:", "elevregen:", "elevmenu:", "elevview:", "elevback:")):
             if query is None or query.message is None:
                 return
             if update.effective_chat is None or update.effective_chat.type != "private":
                 await query.answer("Open your private BuildWise chat.", show_alert=True)
                 return
             await query.answer()
+
+            if data.startswith("elevmenu:"):
+                await self._show_more_views(
+                    query,
+                    context,
+                    data.partition(":")[2],
+                )
+                return
+            if data.startswith("elevback:"):
+                await self._show_front_actions(
+                    query,
+                    context,
+                    data.partition(":")[2],
+                )
+                return
+
+            view = "front"
+            regenerate = False
+            if data.startswith("elevgen:"):
+                key = data.partition(":")[2]
+            elif data.startswith("elevview:"):
+                tail = data[len("elevview:") :]
+                view, separator, key = tail.partition(":")
+                if not separator:
+                    await query.message.reply_text("That building view is no longer available.")
+                    return
+            else:
+                regenerate = True
+                tail = data[len("elevregen:") :]
+                if ":" in tail:
+                    view, key = tail.split(":", 1)
+                else:
+                    # Backward compatibility for front-elevation buttons sent
+                    # before the multi-view release.
+                    key = tail
+                    view = "front"
+
+            try:
+                view = normalize_sketch_view(view)
+            except ValueError:
+                await query.message.reply_text("That building view is not supported.")
+                return
             profile = await self._profile(update)
-            key = data.partition(":")[2]
-            await self._generate_elevation(
+            await self._generate_view(
                 update,
                 context,
                 profile,
                 key,
-                regenerate=data.startswith("elevregen:"),
+                view=view,
+                regenerate=regenerate,
             )
             return
         await super().handle_callback(update, context)
 
-    async def _generate_elevation(
+    @staticmethod
+    def _record(context: ContextTypes.DEFAULT_TYPE, report_key: str) -> dict | None:
+        reports = context.user_data.get("sketch_reports", {})
+        if not isinstance(reports, dict):
+            return None
+        record = reports.get(report_key)
+        return record if isinstance(record, dict) else None
+
+    @staticmethod
+    def _stored_spec(record: dict) -> SketchElevationSpec | None:
+        raw = record.get("elevation_spec")
+        if isinstance(raw, dict):
+            return SketchElevationSpec.from_mapping(raw)
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                return None
+            if isinstance(parsed, dict):
+                return SketchElevationSpec.from_mapping(parsed)
+        return None
+
+    async def _show_more_views(self, query, context, report_key: str) -> None:
+        record = self._record(context, report_key)
+        if record is None:
+            await query.message.reply_text(
+                "This sketch session has expired. Please upload the sketch again."
+            )
+            return
+        await query.message.reply_text(
+            "🧱 More Views\n\nChoose another view of the same interpreted building:",
+            reply_markup=more_views_keyboard(report_key),
+        )
+
+    async def _show_front_actions(self, query, context, report_key: str) -> None:
+        record = self._record(context, report_key)
+        if record is None:
+            await query.message.reply_text(
+                "This sketch session has expired. Please upload the sketch again."
+            )
+            return
+        try:
+            await query.message.edit_text(
+                "🏠 Front elevation actions",
+                reply_markup=elevation_result_keyboard(report_key),
+            )
+        except BadRequest:
+            await query.message.reply_text(
+                "🏠 Front elevation actions",
+                reply_markup=elevation_result_keyboard(report_key),
+            )
+
+    async def _generate_view(
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
         profile: UserProfile,
         report_key: str,
         *,
+        view: str,
         regenerate: bool,
     ) -> None:
         query = update.callback_query
         user = update.effective_user
         if query is None or query.message is None or user is None:
             return
-        reports = context.user_data.get("sketch_reports", {})
-        record = reports.get(report_key)
-        if not isinstance(record, dict):
+        record = self._record(context, report_key)
+        if record is None:
             await query.message.reply_text(
                 "This sketch session has expired. Please upload the sketch again."
             )
@@ -89,12 +210,12 @@ class ElevationBotHandlers(AdminNotificationBotHandlers):
         mime_type = str(record.get("image_mime_type") or "image/jpeg").lower()
         if not isinstance(image_bytes, bytes) or not image_bytes:
             await query.message.reply_text(
-                "I need the original sketch image to generate the elevation. Please upload the sketch again as a JPG or PNG."
+                "I need the original sketch image to generate this view. Please upload the sketch again as a JPG or PNG."
             )
             return
         if mime_type not in _SUPPORTED_ELEVATION_MIME_TYPES:
             await query.message.reply_text(
-                "Elevation generation currently supports JPG, PNG, and WebP sketch images."
+                "Building-view generation currently supports JPG, PNG, and WebP sketch images."
             )
             return
 
@@ -113,13 +234,25 @@ class ElevationBotHandlers(AdminNotificationBotHandlers):
                 await query.message.reply_text(self._reset_message(profile, usage.limit))
                 return
 
-            loading = await query.message.reply_text("🏠 Generating elevation...")
-            variation = int(record.get("elevation_variation", 0)) + (1 if regenerate else 0)
+            loading = await query.message.reply_text(_VIEW_LOADING[view])
+            variations = record.get("view_variations")
+            if not isinstance(variations, dict):
+                variations = {}
+                record["view_variations"] = variations
+            legacy_front_variation = int(record.get("elevation_variation", 0) or 0)
+            current_variation = int(
+                variations.get(view, legacy_front_variation if view == "front" else 0) or 0
+            )
+            variation = current_variation + (1 if regenerate else 0)
+            reusable_spec = self._stored_spec(record)
+
             try:
-                elevation_bytes, spec = await self._elevation.generate(
+                view_bytes, spec = await self._elevation.generate(
                     image_bytes=image_bytes,
                     image_mime_type=mime_type,
                     analysis=str(record.get("answer") or ""),
+                    view=view,
+                    spec=reusable_spec,
                     variation=variation,
                 )
             except SketchElevationError as exc:
@@ -128,36 +261,49 @@ class ElevationBotHandlers(AdminNotificationBotHandlers):
                 return
             except Exception:
                 await self._database.refund_usage(profile)
-                logger.exception("Unexpected sketch elevation generation failure")
+                logger.exception("Unexpected sketch %s-view generation failure", view)
                 await loading.edit_text(
-                    "I couldn't generate the elevation this time. Your request was refunded; please try again."
+                    "I couldn't generate that building view this time. Your request was refunded; please try again."
                 )
                 return
 
-            record["elevation"] = elevation_bytes
+            views = record.get("views")
+            if not isinstance(views, dict):
+                views = {}
+                record["views"] = views
+            views[view] = view_bytes
+            variations[view] = variation
             record["elevation_assumptions"] = list(spec.assumptions)
-            record["elevation_variation"] = variation
             record["elevation_spec"] = spec.prompt_json()
+            if view == "front":
+                # Preserve the old fields for existing report/download compatibility.
+                record["elevation"] = view_bytes
+                record["elevation_variation"] = variation
 
-            output = BytesIO(elevation_bytes)
-            output.name = "BuildWise-concept-elevation.png"
+            output = BytesIO(view_bytes)
+            output.name = _VIEW_FILENAMES[view]
+            markup = (
+                elevation_result_keyboard(report_key)
+                if view == "front"
+                else view_result_keyboard(report_key, view)
+            )
             try:
                 await query.message.reply_photo(
                     photo=output,
-                    caption=elevation_caption(spec),
-                    reply_markup=elevation_result_keyboard(report_key),
+                    caption=view_caption(spec, view),
+                    reply_markup=markup,
                 )
             except TelegramError:
                 await self._database.refund_usage(profile)
-                logger.exception("Telegram elevation delivery failed")
+                logger.exception("Telegram %s-view delivery failed", view)
                 await loading.edit_text(
-                    "The elevation was generated but Telegram could not deliver it. Your request was refunded; please try again."
+                    "The view was generated but Telegram could not deliver it. Your request was refunded; please try again."
                 )
                 return
             try:
                 await loading.delete()
             except TelegramError:
-                await loading.edit_text("✅ Elevation ready.")
+                await loading.edit_text(f"✅ {SKETCH_VIEW_LABELS[view]} ready.")
 
     async def _respond(
         self,
@@ -285,6 +431,8 @@ class ElevationBotHandlers(AdminNotificationBotHandlers):
                 "answer": answer,
                 "image": payload.image_bytes,
                 "image_mime_type": payload.image_mime_type,
+                "views": {},
+                "view_variations": {},
             }
             while len(reports) > 2:
                 reports.pop(next(iter(reports)))
