@@ -113,18 +113,34 @@ class OpenAIService:
             payload.has_image,
             payload.has_pdf,
         )
+        output_budget = self._settings.openai_max_output_tokens
+        if payload.has_pdf or mode is Mode.SKETCH or is_calculation or answer_style is AnswerStyle.DETAILED:
+            output_budget = max(4000, output_budget)
+        instructions = f"{system_prompt(mode)}\n\nResponse preference: {style}"
         try:
             response = await self._client.responses.create(
                 model=self._settings.openai_model,
-                instructions=f"{system_prompt(mode)}\n\nResponse preference: {style}",
+                instructions=instructions,
                 input=input_messages,
-                max_output_tokens=max(4000, self._settings.openai_max_output_tokens) if mode is Mode.SKETCH else self._settings.openai_max_output_tokens,
+                max_output_tokens=output_budget,
                 store=False,
             )
+            details = getattr(response, "incomplete_details", None)
+            reason = getattr(details, "reason", None)
+            if getattr(response, "status", None) == "incomplete" and reason == "max_output_tokens":
+                logger.warning("Answer reached output limit; retrying once mode=%s", mode.value)
+                response = await self._client.responses.create(
+                    model=self._settings.openai_model,
+                    instructions=instructions + "\nComplete the answer within the available space. Avoid repeating the question or duplicating explanations; preserve essential working, conclusions and safety notes.",
+                    input=input_messages,
+                    max_output_tokens=min(8000, max(4000, output_budget * 2)),
+                    store=False,
+                )
         except OpenAIError as exc:
             raise self._translate_error(exc) from exc
         if getattr(response, "status", None) in {"incomplete", "failed", "cancelled"}:
-            raise AIServiceError("The review did not finish. Please send one plan or question at a time; I have not published an incomplete answer.")
+            logger.warning("Answer did not complete mode=%s status=%s", mode.value, getattr(response, "status", None))
+            raise AIServiceError("I couldn't finish this answer. Try asking about a specific section or a smaller page range. This unsuccessful request will be refunded to your daily allowance.")
         output = (response.output_text or "").strip()
         if not output:
             raise AIServiceError(
