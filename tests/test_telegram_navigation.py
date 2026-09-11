@@ -49,8 +49,13 @@ class NavigationKeyboardTests(unittest.TestCase):
         )
         labels = [button.text for row in markup.inline_keyboard for button in row]
         self.assertIn("🎓 Ask BuildWise", labels)
+        self.assertIn("🧠 Practice", labels)
+        self.assertIn("📄 Analyze PDF", labels)
+        self.assertIn("📐 Analyze Sketch", labels)
+        self.assertIn("🏗 Analyze Building", labels)
         self.assertIn("🆔 My ID", labels)
         self.assertIn("🛟 Support", labels)
+        self.assertNotIn("🖼 Sketch / Image", labels)
         self.assertNotIn("🏗 BuildWise Pro", labels)
         self.assertNotIn("📊 Pro Status", labels)
         self.assertNotIn("📈 Beta Stats", labels)
