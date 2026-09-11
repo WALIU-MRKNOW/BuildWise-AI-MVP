@@ -86,6 +86,18 @@ class Settings(BaseSettings):
     openai_image_detail: Literal["auto", "low", "high"] = Field(
         default="auto", validation_alias="OPENAI_IMAGE_DETAIL"
     )
+    openai_elevation_model: str = Field(
+        default="gpt-image-2.5-sunburst",
+        validation_alias="OPENAI_ELEVATION_MODEL",
+    )
+    openai_elevation_size: Literal["1024x1024", "1536x1024", "1024x1536"] = Field(
+        default="1536x1024",
+        validation_alias="OPENAI_ELEVATION_SIZE",
+    )
+    openai_elevation_quality: Literal["low", "medium", "high", "xhigh", "max", "auto"] = Field(
+        default="medium",
+        validation_alias="OPENAI_ELEVATION_QUALITY",
+    )
     openai_timeout_seconds: float = Field(
         default=90, ge=10, le=300, validation_alias="OPENAI_TIMEOUT_SECONDS"
     )
@@ -114,7 +126,7 @@ class Settings(BaseSettings):
         default="INFO", validation_alias="LOG_LEVEL"
     )
 
-    @field_validator("openai_model", "supabase_storage_bucket")
+    @field_validator("openai_model", "openai_elevation_model", "supabase_storage_bucket")
     @classmethod
     def value_must_not_be_blank(cls, value: str) -> str:
         if not value.strip():

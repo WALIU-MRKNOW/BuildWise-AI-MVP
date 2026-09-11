@@ -44,6 +44,35 @@ def follow_up_keyboard(mode: Mode) -> InlineKeyboardMarkup:
     )
 
 
+def sketch_analysis_keyboard(report_key: str, *, can_generate_elevation: bool) -> InlineKeyboardMarkup:
+    """Two-action sketch surface: elevation when possible, plus the report PDF."""
+
+    if can_generate_elevation:
+        return InlineKeyboardMarkup(
+            [[
+                InlineKeyboardButton("🏠 Elevation", callback_data=f"elevgen:{report_key}"),
+                InlineKeyboardButton("📄 PDF", callback_data=f"sketchpdf:{report_key}"),
+            ]]
+        )
+    return InlineKeyboardMarkup(
+        [[
+            InlineKeyboardButton("📋 Copy", callback_data="followup:copy"),
+            InlineKeyboardButton("📄 PDF", callback_data=f"sketchpdf:{report_key}"),
+        ]]
+    )
+
+
+def elevation_result_keyboard(report_key: str) -> InlineKeyboardMarkup:
+    """Keep generated-elevation actions compact and tied to the originating sketch."""
+
+    return InlineKeyboardMarkup(
+        [[
+            InlineKeyboardButton("📄 Add to PDF", callback_data=f"sketchpdf:{report_key}"),
+            InlineKeyboardButton("🔁 Regenerate", callback_data=f"elevregen:{report_key}"),
+        ]]
+    )
+
+
 def clarification_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
