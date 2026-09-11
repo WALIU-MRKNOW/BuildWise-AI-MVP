@@ -1,22 +1,18 @@
-"""Referral-credit usage orchestration without changing AI/image/PDF handlers."""
+"""Student access tiers and onboarding profile persistence.
+
+The retired referral/reward system intentionally does not participate in usage
+accounting. Daily usage is enforced by the atomic BuildWise database RPC, with
+higher configured limits only for explicit founder and pilot Telegram IDs.
+"""
 
 from __future__ import annotations
 
-from contextvars import ContextVar
 import json
-import logging
 import os
 from typing import Any
 
-from bot.config import Settings
-from bot.domain import AnswerStyle, ConversationTurn, Mode, QuizQuestion, RequestPayload, UsageStatus, UserProfile
-from bot.services.openai_service import OpenAIService
-from bot.services.supabase_service import SupabaseError, SupabaseService, local_date
-
-logger = logging.getLogger(__name__)
-_current_reservation: ContextVar[str | None] = ContextVar(
-    "buildwise_usage_reservation", default=None
-)
+from bot.domain import UsageStatus, UserProfile
+from bot.services.supabase_service import SupabaseError, SupabaseService
 
 _STUDENT_PROFILE_ITEM_TYPE = "student_profile"
 _STUDENT_PROFILE_TITLE = "BuildWise student profile"
@@ -67,8 +63,8 @@ def pilot_daily_limit(normal_limit: int) -> int:
     return _configured_daily_limit("PILOT_DAILY_AI_REQUEST_LIMIT", 40, normal_limit)
 
 
-class RewardAwareSupabaseService(SupabaseService):
-    """Use daily allowance first, then referral credits, with exact refunds."""
+class StudentAccessSupabaseService(SupabaseService):
+    """Apply explicit student access tiers while preserving onboarding identity."""
 
     async def consume_usage(self, profile: UserProfile, limit: int) -> UsageStatus:
         if profile.telegram_id in founder_telegram_ids():
@@ -77,51 +73,7 @@ class RewardAwareSupabaseService(SupabaseService):
             effective_limit = pilot_daily_limit(limit)
         else:
             effective_limit = limit
-
-        rows = await self._rpc(
-            "consume_usage_with_referral_credit",
-            {
-                "p_user_id": profile.id,
-                "p_usage_date": local_date(profile.timezone).isoformat(),
-                "p_limit": effective_limit,
-            },
-        )
-        row = rows[0] if isinstance(rows, list) else rows
-        reservation_id = str(row["reservation_id"]) if row.get("reservation_id") else None
-        _current_reservation.set(reservation_id)
-        return UsageStatus(
-            allowed=bool(row["allowed"]),
-            used=int(row["used"]),
-            limit=int(row["limit_value"]),
-            reservation_id=reservation_id,
-            source=row.get("source"),
-            bonus_credits_remaining=int(row.get("bonus_credits_remaining") or 0),
-        )
-
-    async def refund_usage(self, profile: UserProfile) -> None:
-        reservation_id = _current_reservation.get()
-        if reservation_id is None:
-            return
-        try:
-            await self._rpc(
-                "refund_usage_reservation", {"p_reservation_id": reservation_id}
-            )
-        finally:
-            _current_reservation.set(None)
-
-    async def finalize_current_usage(self) -> dict[str, Any] | None:
-        reservation_id = _current_reservation.get()
-        if reservation_id is None:
-            return None
-        try:
-            rows = await self._rpc(
-                "finalize_usage_and_reward_referrer",
-                {"p_reservation_id": reservation_id, "p_reward_credits": 10},
-            )
-            row = rows[0] if isinstance(rows, list) and rows else rows
-            return row if isinstance(row, dict) else None
-        finally:
-            _current_reservation.set(None)
+        return await super().consume_usage(profile, effective_limit)
 
     async def get_student_identity(self, user_id: str) -> dict[str, str] | None:
         rows = await self._request(
@@ -212,46 +164,6 @@ class RewardAwareSupabaseService(SupabaseService):
         return len(conversations)
 
 
-class RewardAwareOpenAIService:
-    """Finalize referral qualification only after the AI call succeeds."""
-
-    def __init__(self, settings: Settings, database: RewardAwareSupabaseService) -> None:
-        self._delegate = OpenAIService(settings)
-        self._database = database
-
-    async def _finalize(self) -> None:
-        try:
-            result = await self._database.finalize_current_usage()
-            if result and result.get("reward_granted"):
-                logger.info(
-                    "Referral reward granted user_id=%s credits=%s",
-                    result.get("rewarded_user_id"),
-                    result.get("credits_awarded"),
-                )
-        except SupabaseError:
-            # The AI request already succeeded. Reward bookkeeping must not turn
-            # a successful answer into a user-visible AI failure.
-            logger.exception("AI request succeeded but referral reward finalization failed")
-
-    async def answer(
-        self,
-        mode: Mode,
-        payload: RequestPayload,
-        *,
-        history: list[ConversationTurn] | None = None,
-        answer_style: AnswerStyle = AnswerStyle.CONCISE,
-    ) -> str:
-        result = await self._delegate.answer(
-            mode, payload, history=history, answer_style=answer_style
-        )
-        await self._finalize()
-        return result
-
-    async def generate_quiz(
-        self, *, topic: str, difficulty: str, count: int
-    ) -> list[QuizQuestion]:
-        result = await self._delegate.generate_quiz(
-            topic=topic, difficulty=difficulty, count=count
-        )
-        await self._finalize()
-        return result
+# Temporary import compatibility for any internal tests/tools that still reference
+# the old class name. It no longer provides referral rewards or referral credits.
+RewardAwareSupabaseService = StudentAccessSupabaseService
