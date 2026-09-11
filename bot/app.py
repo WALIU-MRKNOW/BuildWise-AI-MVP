@@ -8,7 +8,7 @@ from telegram.ext import Application
 
 from bot.config import Settings
 from bot.handlers.sketch_report_handlers import SketchReportHandlers
-from bot.handlers.admin_notification_bot_handlers import AdminNotificationBotHandlers
+from bot.handlers.elevation_bot_handlers import ElevationBotHandlers
 from bot.handlers.bot_handlers import BotHandlers
 from bot.handlers.navigation_handlers import NavigationHandlers, NavigationSupportHandlers
 from bot.handlers.student_learning_handlers import StudentLearningHandlers
@@ -32,7 +32,7 @@ class BuildWiseComponents:
 def build_components(settings: Settings) -> BuildWiseComponents:
     database = StudentAccessSupabaseService(settings)
     reminders = ReminderService(database)
-    handlers = AdminNotificationBotHandlers(
+    handlers = ElevationBotHandlers(
         settings,
         OpenAIService(settings),
         RequestRouter(),
