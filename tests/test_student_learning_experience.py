@@ -58,16 +58,14 @@ class StudentLearningExperienceTests(unittest.TestCase):
         self.assertIn("×", cleaned)
         self.assertIn("m³", cleaned)
 
-    def test_study_keyboard_has_solution_pdf_action(self) -> None:
+    def test_study_keyboard_has_only_copy_and_solution_pdf_actions(self) -> None:
         markup = follow_up_keyboard(Mode.STUDY)
         callbacks = [
             button.callback_data
             for row in markup.inline_keyboard
             for button in row
         ]
-        self.assertIn("followup:pdf", callbacks)
-        self.assertIn("followup:simpler", callbacks)
-        self.assertIn("followup:similar", callbacks)
+        self.assertEqual(callbacks, ["followup:copy", "followup:pdf"])
 
     def test_solution_pdf_is_generated_in_memory(self) -> None:
         pdf = render_student_solution_pdf(
