@@ -60,7 +60,8 @@ class PromptTests(unittest.TestCase):
     def test_off_domain_requests_are_redirected(self) -> None:
         prompt = BUILDWISE_DOMAIN_SCOPE.lower()
         self.assertIn("clearly unrelated to the built environment", prompt)
-        self.assertIn("redirect to that scope", prompt)
+        self.assertIn("redirect to that", prompt)
+        self.assertIn("scope instead of becoming a general-purpose tutor", prompt)
 
 
 if __name__ == "__main__":
