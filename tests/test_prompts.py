@@ -1,7 +1,7 @@
 import unittest
 
 from bot.domain import Mode
-from bot.prompts import default_user_request, system_prompt
+from bot.prompts import BUILDWISE_DOMAIN_SCOPE, default_user_request, system_prompt
 
 
 class PromptTests(unittest.TestCase):
@@ -30,6 +30,38 @@ class PromptTests(unittest.TestCase):
         self.assertIn("📐 Diagram", prompt)
         self.assertIn("Separate visible facts from assumptions", prompt)
         self.assertIn("never be described as a measured dimension", prompt)
+
+    def test_all_student_modes_share_construction_brain(self) -> None:
+        for mode in Mode:
+            with self.subTest(mode=mode):
+                prompt = system_prompt(mode)
+                self.assertIn("BUILDWISE CONSTRUCTION / BUILT-ENVIRONMENT BRAIN", prompt)
+                self.assertIn("DEFAULT INTERPRETATION RULE", prompt)
+                self.assertIn("The student should not need to append", prompt)
+
+    def test_domain_scope_is_general_not_reinforcement_only(self) -> None:
+        prompt = BUILDWISE_DOMAIN_SCOPE.lower()
+        for term in (
+            "reinforcement",
+            "foundation",
+            "load",
+            "services",
+            "estimate",
+            "schedule",
+            "bearing",
+            "setting out",
+            "drainage",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, prompt)
+        self.assertIn("not a hard-coded", prompt)
+        self.assertIn("do not drift into unrelated meanings", prompt)
+
+    def test_off_domain_requests_are_redirected(self) -> None:
+        prompt = BUILDWISE_DOMAIN_SCOPE.lower()
+        self.assertIn("clearly unrelated to the built environment", prompt)
+        self.assertIn("redirect to that", prompt)
+        self.assertIn("scope instead of becoming a general-purpose tutor", prompt)
 
 
 if __name__ == "__main__":
