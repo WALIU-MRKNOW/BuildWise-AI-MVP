@@ -57,13 +57,15 @@ class RequestRouter:
         if self._matches(searchable, self._STRONG_SKETCH_PATTERNS):
             return RoutingDecision(Mode.SKETCH, "explicit drawing keywords")
 
-        # Text-only technical questions should be treated as study requests even when
-        # they contain construction nouns such as beam, concrete, structure, or
-        # foundation. Previously those nouns won the routing decision first and sent
-        # structural calculations into building-photo analysis, which can return no
-        # usable answer when no image is attached.
-        if normalized and not has_image and self._matches(searchable, self._STUDY_PATTERNS):
-            return RoutingDecision(Mode.STUDY, "text study/calculation keywords")
+        # Text-only construction vocabulary belongs to the Study/teaching brain.
+        # Building-photo analysis is reserved for requests that actually include an
+        # image (or for an explicitly selected Building mode). This prevents broad
+        # terms such as reinforcement, foundation, concrete and drainage from
+        # opening the photo-inspection workflow when the student only typed text.
+        if normalized and not has_image and not has_pdf:
+            if self._matches(searchable, self._STUDY_PATTERNS):
+                return RoutingDecision(Mode.STUDY, "text study/calculation keywords")
+            return RoutingDecision(Mode.STUDY, "text-only defaults to study")
 
         if self._matches(searchable, self._BUILDING_PATTERNS):
             return RoutingDecision(Mode.BUILDING, "building keywords")
@@ -73,8 +75,6 @@ class RequestRouter:
             return RoutingDecision(Mode.STUDY, "study keywords")
         if has_pdf:
             return RoutingDecision(Mode.STUDY, "PDF defaults to study")
-        if normalized and not has_image:
-            return RoutingDecision(Mode.STUDY, "general text question")
         if has_image:
             return RoutingDecision(None, "unlabelled image")
         return RoutingDecision(Mode.STUDY, "default")
