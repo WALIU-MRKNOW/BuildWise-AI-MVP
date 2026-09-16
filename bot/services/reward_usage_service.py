@@ -8,6 +8,7 @@ higher configured limits only for explicit founder and pilot Telegram IDs.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any
 
@@ -16,6 +17,8 @@ from bot.services.supabase_service import SupabaseError, SupabaseService
 
 _STUDENT_PROFILE_ITEM_TYPE = "student_profile"
 _STUDENT_PROFILE_TITLE = "BuildWise student profile"
+_HISTORY_PAGE_SIZE = 500
+logger = logging.getLogger(__name__)
 
 
 def _parse_telegram_ids(raw: str, variable: str) -> frozenset[int]:
@@ -100,20 +103,17 @@ class StudentAccessSupabaseService(SupabaseService):
         return {"name": name, "university": university}
 
     async def save_student_identity(self, user_id: str, *, name: str, university: str) -> None:
+        """Create the replacement profile before removing the old one.
+
+        If the insert fails, the previous onboarding identity remains intact. If the
+        best-effort cleanup fails, newest-first reads still select the new profile.
+        """
         payload = json.dumps(
             {"name": name.strip(), "university": university.strip()},
             ensure_ascii=False,
             separators=(",", ":"),
         )
-        await self._request(
-            "DELETE",
-            "/rest/v1/saved_items",
-            params={
-                "user_id": f"eq.{user_id}",
-                "item_type": f"eq.{_STUDENT_PROFILE_ITEM_TYPE}",
-            },
-        )
-        await self._request(
+        rows = await self._request(
             "POST",
             "/rest/v1/saved_items",
             json={
@@ -123,8 +123,23 @@ class StudentAccessSupabaseService(SupabaseService):
                 "content": payload,
                 "file_reference": None,
             },
-            headers={"Prefer": "return=minimal"},
+            headers={"Prefer": "return=representation"},
         )
+        if not rows or not rows[0].get("id"):
+            raise SupabaseError("Student identity could not be saved")
+        new_id = str(rows[0]["id"])
+        try:
+            await self._request(
+                "DELETE",
+                "/rest/v1/saved_items",
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "item_type": f"eq.{_STUDENT_PROFILE_ITEM_TYPE}",
+                    "id": f"neq.{new_id}",
+                },
+            )
+        except SupabaseError:
+            logger.warning("Could not prune an older student identity row user_id=%s", user_id)
 
     async def recent_saved_items(self, user_id: str, limit: int = 5) -> list[dict[str, Any]]:
         return await self._request(
@@ -139,17 +154,72 @@ class StudentAccessSupabaseService(SupabaseService):
             },
         )
 
+    async def attach_file_to_conversation(
+        self,
+        *,
+        user_id: str,
+        conversation_id: str,
+        file_reference: str,
+    ) -> None:
+        """Attach a successfully persisted upload to exactly one owned conversation."""
+        rows = await self._request(
+            "PATCH",
+            "/rest/v1/conversations",
+            params={
+                "id": f"eq.{conversation_id}",
+                "user_id": f"eq.{user_id}",
+            },
+            json={"file_reference": file_reference},
+            headers={"Prefer": "return=representation"},
+        )
+        if not rows:
+            raise SupabaseError("Conversation attachment could not be linked")
+
+    async def _paged_history_rows(
+        self,
+        table: str,
+        user_id: str,
+        *,
+        exclude_student_profile: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Read every history row in bounded pages instead of silently truncating at 500."""
+        rows: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            params = {
+                "user_id": f"eq.{user_id}",
+                "select": "id,file_reference",
+                "order": "created_at.asc",
+                "limit": str(_HISTORY_PAGE_SIZE),
+                "offset": str(offset),
+            }
+            if exclude_student_profile:
+                params["item_type"] = f"neq.{_STUDENT_PROFILE_ITEM_TYPE}"
+            page = await self._request("GET", f"/rest/v1/{table}", params=params)
+            if not isinstance(page, list) or not page:
+                break
+            rows.extend(page)
+            if len(page) < _HISTORY_PAGE_SIZE:
+                break
+            offset += len(page)
+        return rows
+
     async def delete_history(self, user_id: str) -> int:
-        """Delete student work while preserving required onboarding identity."""
-        conversations = await self.recent_conversations(user_id, limit=500)
+        """Delete all student work/files while preserving required onboarding identity."""
+        conversations = await self._paged_history_rows("conversations", user_id)
+        saved_items = await self._paged_history_rows(
+            "saved_items", user_id, exclude_student_profile=True
+        )
         references = {
-            row.get("file_reference") for row in conversations if row.get("file_reference")
+            str(row["file_reference"])
+            for row in (*conversations, *saved_items)
+            if row.get("file_reference")
         }
         for reference in references:
             try:
-                await self.delete_file(str(reference))
+                await self.delete_file(reference)
             except SupabaseError:
-                pass
+                logger.warning("Could not remove stored history file user_id=%s", user_id)
         await self._request(
             "DELETE", "/rest/v1/conversations", params={"user_id": f"eq.{user_id}"}
         )
