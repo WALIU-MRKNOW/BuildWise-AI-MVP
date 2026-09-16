@@ -23,6 +23,7 @@ from bot.study_experience import detect_study_request_kind
 logger = logging.getLogger(__name__)
 
 SKETCH_REPORT_TTL_SECONDS = 30 * 60
+PENDING_UPLOAD_TTL_SECONDS = 10 * 60
 SKETCH_REPORT_CLEANUP_SECONDS = 5 * 60
 MAX_SKETCH_REPORTS_PER_USER = 2
 
@@ -47,10 +48,10 @@ class RepositoryAuditHandlers(ElevationBotHandlers):
         await super().post_init(application)
         if application.job_queue is not None:
             application.job_queue.run_repeating(
-                self._cleanup_sketch_report_cache,
+                self._cleanup_ephemeral_user_data,
                 interval=SKETCH_REPORT_CLEANUP_SECONDS,
                 first=SKETCH_REPORT_CLEANUP_SECONDS,
-                name="buildwise-sketch-cache-cleanup",
+                name="buildwise-ephemeral-cache-cleanup",
             )
 
     @staticmethod
@@ -85,13 +86,24 @@ class RepositoryAuditHandlers(ElevationBotHandlers):
         if not reports:
             user_data.pop("sketch_reports", None)
 
-    async def _cleanup_sketch_report_cache(
+    @staticmethod
+    def _prune_pending_upload(user_data: dict[str, Any], *, now: float | None = None) -> None:
+        pending = user_data.get("pending_request")
+        if not isinstance(pending, dict):
+            return
+        created = pending.get("created_at_monotonic")
+        current = monotonic() if now is None else now
+        if not isinstance(created, (int, float)) or current - float(created) >= PENDING_UPLOAD_TTL_SECONDS:
+            user_data.pop("pending_request", None)
+
+    async def _cleanup_ephemeral_user_data(
         self, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         now = monotonic()
         for user_data in context.application.user_data.values():
             if isinstance(user_data, dict):
                 self._prune_sketch_reports(user_data, now=now)
+                self._prune_pending_upload(user_data, now=now)
 
     async def handle_message(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -104,6 +116,10 @@ class RepositoryAuditHandlers(ElevationBotHandlers):
             if message is None:
                 return
             raw_text = (message.text or message.caption or "").strip()
+
+            # Any new message means a previous button-based clarification upload was
+            # abandoned. Drop those bytes before processing the new input.
+            context.user_data.pop("pending_request", None)
 
             if context.user_data.pop("awaiting_timezone", False):
                 await self._set_timezone(update, profile, raw_text)
@@ -184,6 +200,7 @@ class RepositoryAuditHandlers(ElevationBotHandlers):
                     "pdf_bytes": payload.pdf_bytes,
                     "is_pdf": payload.has_pdf,
                     "ignore_history": ignore_history,
+                    "created_at_monotonic": monotonic(),
                 }
                 await message.reply_text(
                     "What would you like me to do with this?",
@@ -218,6 +235,7 @@ class RepositoryAuditHandlers(ElevationBotHandlers):
         profile: UserProfile,
         choice: str,
     ) -> None:
+        self._prune_pending_upload(context.user_data)
         pending = context.user_data.pop("pending_request", None)
         if not isinstance(pending, dict):
             await update.effective_message.reply_text(
