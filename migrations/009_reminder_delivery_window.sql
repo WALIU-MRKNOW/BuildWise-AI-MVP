@@ -1,6 +1,8 @@
 -- Ensure enabled reminders are delivered on the next successful poll even when
 -- Railway, Telegram, or the scheduler misses the original five-minute window.
 -- last_reminder_date still guarantees at most one automatic reminder per local day.
+-- A stale snooze from a prior day never fires at an arbitrary overnight hour; it
+-- falls back to that day's normal reminder time instead.
 
 create or replace function public.get_due_reminders(p_now timestamptz)
 returns table(
@@ -33,7 +35,11 @@ as $$
     cross join lateral (
         select
             (p_now at time zone n.timezone)::date as local_day,
-            (p_now at time zone n.timezone)::time as local_time
+            (p_now at time zone n.timezone)::time as local_time,
+            case
+                when n.snooze_until is null then null
+                else (n.snooze_until at time zone n.timezone)::date
+            end as snooze_local_day
     ) local_values
     left join public.streaks s on s.user_id = n.user_id
     left join public.daily_goals d
@@ -43,11 +49,15 @@ as $$
       and (
           (
               n.snooze_until is not null
+              and local_values.snooze_local_day = local_values.local_day
               and p_now >= n.snooze_until
           )
           or
           (
-              n.snooze_until is null
+              (
+                  n.snooze_until is null
+                  or local_values.snooze_local_day < local_values.local_day
+              )
               and local_values.local_time >= n.reminder_time
           )
       );
