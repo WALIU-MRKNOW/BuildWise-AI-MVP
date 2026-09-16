@@ -113,7 +113,12 @@ class PreviewUsageLimiter:
             "on",
         }
         self._base_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-        self._key = os.getenv("SUPABASE_SECRET_KEY", "").strip()
+        # Settings accepts both names. Mirror that compatibility here so enabling
+        # Pro cannot fail simply because a deployment still uses the legacy alias.
+        self._key = (
+            os.getenv("SUPABASE_SECRET_KEY", "").strip()
+            or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        )
         self._persistent = enabled
         if self._persistent and (not self._base_url or not self._key):
             raise ProAuthError(
