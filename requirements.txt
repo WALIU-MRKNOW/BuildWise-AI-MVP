@@ -7,4 +7,4 @@ python-multipart==0.0.31
 python-telegram-bot[job-queue]==22.8
 reportlab==4.4.4
 tzdata==2026.3
-uvicorn[standard]==0.52.3
+uvicorn[standard]==0.53.0
