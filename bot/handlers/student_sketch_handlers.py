@@ -97,7 +97,7 @@ class StudentSketchHandlers:
                     caption=(
                         "✏️ BuildWise Sketch Studio · Educational concept only. "
                         "Not to scale unless verified; check dimensions and technical details "
-                        "with your lecturer or a qualified professional."
+                        "with your course instructor or a qualified professional."
                     ),
                 )
                 try:
