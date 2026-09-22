@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 from bot.services.openai_service import OpenAIService
 
@@ -19,6 +20,17 @@ class QuizParsingTests(unittest.TestCase):
         )
         self.assertEqual(question.correct_index, 3)
         self.assertEqual(question.options[3], "4")
+
+    def test_parse_quiz_response_requires_exact_requested_count(self) -> None:
+        payload = '{"questions":[{"question":"Q?","options":["a","b","c","d"],"correct_index":0,"explanation":"Because."}]}'
+        with self.assertRaises(ValueError):
+            OpenAIService._parse_quiz_response(payload, count=3)
+
+    def test_parse_quiz_response_accepts_exact_requested_count(self) -> None:
+        payload = '{"questions":[{"question":"Q?","options":["a","b","c","d"],"correct_index":0,"explanation":"Because."}]}'
+        questions = OpenAIService._parse_quiz_response(payload, count=1)
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(questions[0].question, "Q?")
 
     def test_question_requires_four_options(self) -> None:
         with self.assertRaises(ValueError):
@@ -60,6 +72,38 @@ class QuizParsingTests(unittest.TestCase):
             self.assertEqual(after.options[after.correct_index], correct_answer)
             self.assertEqual(set(after.options), set(before.options))
             self.assertEqual(after.explanation, before.explanation)
+
+
+class _RetryResponses:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if len(self.calls) == 1:
+            return SimpleNamespace(output_text='{"questions":[]}')
+        return SimpleNamespace(
+            output_text='{"questions":[{"question":"Stress?","options":["a","b","c","d"],"correct_index":1,"explanation":"Because."}]}'
+        )
+
+
+class QuizRetryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_generate_quiz_retries_invalid_model_output_once(self) -> None:
+        service = OpenAIService.__new__(OpenAIService)
+        responses = _RetryResponses()
+        service._client = SimpleNamespace(responses=responses)
+        service._settings = SimpleNamespace(
+            openai_model="test-model",
+            openai_max_output_tokens=1000,
+        )
+
+        questions = await service.generate_quiz(
+            topic="stress", difficulty="medium", count=1
+        )
+
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(len(responses.calls), 2)
+        self.assertIn("previous response could not be validated", responses.calls[1]["input"])
 
 
 if __name__ == "__main__":

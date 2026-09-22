@@ -1120,8 +1120,12 @@ class BotHandlers:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE, selected: int
     ) -> None:
         session = context.user_data.get("practice_session")
-        if not session or session.get("answered"):
+        if not session:
             await update.effective_message.reply_text("Use /practice to start a new session.")
+            return
+        if session.get("answered"):
+            # Telegram can deliver repeated taps on the same inline answer button.
+            # Ignore them instead of telling the student that the active session vanished.
             return
         questions: list[QuizQuestion] = session["questions"]
         question = questions[int(session["index"])]
