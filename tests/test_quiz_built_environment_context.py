@@ -50,6 +50,11 @@ class QuizBuiltEnvironmentContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("not psychology", instructions)
         self.assertIn("reinforcement", prompt)
         self.assertIn("built-environment scope", prompt)
+        self.assertIn("plausible distractors", prompt)
+        self.assertIn("common student mistakes", prompt)
+        self.assertIn("reasoning and application", prompt)
+        self.assertIn("technically unambiguous", prompt)
+        self.assertIn("shuffles", prompt)
 
 
 if __name__ == "__main__":

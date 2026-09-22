@@ -183,9 +183,26 @@ Difficulty: {difficulty}
 Return only one valid JSON object with this shape:
 {{"questions":[{{"question":"...","options":["...","...","...","..."],"correct_index":2,"explanation":"..."}}]}}
 
-Each question must have exactly four useful options. correct_index must be an
-integer from 0 to 3. Vary the correct answer position across the quiz instead of
-repeatedly placing it in the same option. Explanations must be short. Questions,
+Each question must have exactly four useful options and exactly one defensible
+best answer. correct_index must be an integer from 0 to 3.
+
+Make the practice test understanding rather than pattern recognition:
+- Prefer realistic built-environment scenarios, diagnosis, application, calculation
+  traps, drawing/detail interpretation, sequencing, and "most appropriate next
+  step" questions when they fit the topic and difficulty.
+- Wrong options must be plausible distractors based on common student mistakes,
+  nearby concepts, incorrect assumptions, or realistic site decisions. Do not use
+  silly, unrelated, or obviously impossible distractors just to fill A-D.
+- Avoid giveaway wording, repeated option patterns, and answers that are obvious
+  from length or phrasing alone.
+- For medium and hard difficulty, prioritize reasoning and application over simple
+  definition recall.
+- Keep every question technically unambiguous: do not create two answers that
+  could both reasonably be correct without additional assumptions.
+- Do not depend on the model's option order for randomness; BuildWise shuffles
+  correct-answer positions after parsing while preserving the answer key.
+
+Explanations must be concise but state why the best answer is correct. Questions,
 options, and explanations must use the legitimate construction/built-environment
 meaning of the topic. Do not include Markdown fences.
 """.strip()
