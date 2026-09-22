@@ -20,6 +20,17 @@ class QuizParsingTests(unittest.TestCase):
         self.assertEqual(question.correct_index, 3)
         self.assertEqual(question.options[3], "4")
 
+    def test_parse_quiz_response_requires_exact_requested_count(self) -> None:
+        payload = '{"questions":[{"question":"Q?","options":["a","b","c","d"],"correct_index":0,"explanation":"Because."}]}'
+        with self.assertRaises(ValueError):
+            OpenAIService._parse_quiz_response(payload, count=3)
+
+    def test_parse_quiz_response_accepts_exact_requested_count(self) -> None:
+        payload = '{"questions":[{"question":"Q?","options":["a","b","c","d"],"correct_index":0,"explanation":"Because."}]}'
+        questions = OpenAIService._parse_quiz_response(payload, count=1)
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(questions[0].question, "Q?")
+
     def test_question_requires_four_options(self) -> None:
         with self.assertRaises(ValueError):
             OpenAIService._parse_question(
