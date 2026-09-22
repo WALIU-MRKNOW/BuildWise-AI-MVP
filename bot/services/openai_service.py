@@ -219,18 +219,46 @@ meaning of the topic. Do not include Markdown fences.
         except OpenAIError as exc:
             raise self._translate_error(exc) from exc
         try:
-            data = self._parse_json(response.output_text or "")
-            questions = [self._parse_question(item) for item in data["questions"]]
+            questions = self._parse_quiz_response(response.output_text or "", count=count)
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            logger.warning("OpenAI returned malformed quiz JSON")
-            raise AIServiceError(
-                "I could not create a reliable quiz just now. Please try the topic again."
-            ) from exc
-        if len(questions) != count:
-            raise AIServiceError(
-                "I could not create the requested number of quiz questions. Please try again."
+            logger.warning("OpenAI returned malformed quiz JSON; retrying once")
+            retry_prompt = prompt + (
+                "\n\nYour previous response could not be validated. Return ONLY valid JSON "
+                f"with exactly {count} questions, exactly four non-empty options per question, "
+                "one correct_index from 0 to 3, and a non-empty explanation."
             )
+            try:
+                response = await self._client.responses.create(
+                    model=self._settings.openai_model,
+                    instructions=QUIZ_SCOPE_INSTRUCTIONS,
+                    input=retry_prompt,
+                    max_output_tokens=min(
+                        6000, max(self._settings.openai_max_output_tokens, count * 450)
+                    ),
+                    store=False,
+                )
+                questions = self._parse_quiz_response(
+                    response.output_text or "", count=count
+                )
+            except OpenAIError as retry_exc:
+                raise self._translate_error(retry_exc) from retry_exc
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as retry_exc:
+                logger.warning("OpenAI returned malformed quiz JSON after retry")
+                raise AIServiceError(
+                    "I could not create a reliable quiz just now. Please try the topic again."
+                ) from retry_exc
         return self._balance_quiz_answers(questions)
+
+    @classmethod
+    def _parse_quiz_response(cls, text: str, *, count: int) -> list[QuizQuestion]:
+        data = cls._parse_json(text)
+        raw_questions = data["questions"]
+        if not isinstance(raw_questions, list):
+            raise ValueError("questions must be a list")
+        questions = [cls._parse_question(item) for item in raw_questions]
+        if len(questions) != count:
+            raise ValueError("quiz question count does not match request")
+        return questions
 
     @staticmethod
     def _parse_json(text: str) -> dict[str, Any]:
