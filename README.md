@@ -141,6 +141,10 @@ Users can skip commands and send content directly. A text question goes to Study
 - Milestones are shown at 3, 7, 14, 30, 50, and 100 days.
 - Quick Practice supports Easy/Medium/Hard and 3/5/10 multiple-choice questions, then records score and mistakes.
 
+For the repeat-button regression checks and an exact production Telegram test, see [Quick Practice verification](docs/QUICK_PRACTICE_VERIFICATION.md). An unfinished Practice session is held in process memory and must be restarted after a bot deployment or restart.
+
+For the Building student curriculum basis and proposed product priorities, see the [Building student learning roadmap](docs/BUILDING_STUDENT_ROADMAP.md).
+
 User timezone is stored as an IANA name such as `Africa/Lagos`. New profiles use UTC temporarily and are asked once to confirm a timezone.
 
 ## Reminders
