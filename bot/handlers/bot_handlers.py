@@ -1043,11 +1043,11 @@ class BotHandlers:
         if len(parts) >= 3 and parts[1] == "count":
             await self._generate_practice(update, context, profile, int(parts[2]))
             return
-        if len(parts) >= 3 and parts[1] == "answer":
-            await self._answer_practice_question(update, context, int(parts[2]))
+        if len(parts) == 5 and parts[1] == "answer":
+            await self._answer_practice_question(update, context, int(parts[4]), parts[2], int(parts[3]))
             return
-        if len(parts) >= 2 and parts[1] == "next":
-            await self._next_practice(update, context, profile)
+        if len(parts) == 4 and parts[1] == "next":
+            await self._next_practice(update, context, profile, parts[2], int(parts[3]))
 
     async def _generate_practice(
         self,
@@ -1084,6 +1084,7 @@ class BotHandlers:
             await loading.edit_text(exc.public_message)
             return
         context.user_data["practice_session"] = {
+            "id": uuid4().hex[:8],
             "topic": setup["topic"],
             "difficulty": setup["difficulty"],
             "questions": questions,
@@ -1113,15 +1114,18 @@ class BotHandlers:
         await update.effective_message.reply_text(
             f"🧠 Question {index + 1} / {len(questions)}\n\n"
             f"{question.question}\n\n{options}",
-            reply_markup=quiz_answer_keyboard(),
+            reply_markup=quiz_answer_keyboard(session["id"], index),
         )
 
     async def _answer_practice_question(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE, selected: int
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, selected: int,
+        session_id: str, question_index: int,
     ) -> None:
         session = context.user_data.get("practice_session")
         if not session:
             await update.effective_message.reply_text("Use /practice to start a new session.")
+            return
+        if session["id"] != session_id or session["index"] != question_index:
             return
         if session.get("answered"):
             # Telegram can deliver repeated taps on the same inline answer button.
@@ -1148,7 +1152,7 @@ class BotHandlers:
         finished = int(session["index"]) == len(questions) - 1
         await update.effective_message.reply_text(
             f"{result}\n\n{question.explanation}",
-            reply_markup=quiz_next_keyboard(finished=finished),
+            reply_markup=quiz_next_keyboard(session_id, question_index, finished=finished),
         )
 
     async def _next_practice(
@@ -1156,8 +1160,12 @@ class BotHandlers:
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
         profile: UserProfile,
+        session_id: str,
+        question_index: int,
     ) -> None:
         session = context.user_data.get("practice_session")
+        if session and (session["id"] != session_id or session["index"] != question_index):
+            return
         if not session or not session.get("answered"):
             await update.effective_message.reply_text("Choose an answer first.")
             return

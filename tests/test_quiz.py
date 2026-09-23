@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from bot.services.openai_service import OpenAIService
+from bot.services.openai_service import AIServiceError, OpenAIService
 
 
 class QuizParsingTests(unittest.TestCase):
@@ -104,6 +104,22 @@ class QuizRetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(questions), 1)
         self.assertEqual(len(responses.calls), 2)
         self.assertIn("previous response could not be validated", responses.calls[1]["input"])
+
+    async def test_generate_quiz_rejects_two_malformed_responses(self) -> None:
+        service = OpenAIService.__new__(OpenAIService)
+        responses = _RetryResponses()
+        async def always_invalid(**kwargs):
+            responses.calls.append(kwargs)
+            return SimpleNamespace(output_text='{"questions":[]}')
+        responses.create = always_invalid
+        service._client = SimpleNamespace(responses=responses)
+        service._settings = SimpleNamespace(
+            openai_model="test-model", openai_max_output_tokens=1000,
+        )
+
+        with self.assertRaises(AIServiceError):
+            await service.generate_quiz(topic="stress", difficulty="medium", count=3)
+        self.assertEqual(len(responses.calls), 2)
 
 
 if __name__ == "__main__":
