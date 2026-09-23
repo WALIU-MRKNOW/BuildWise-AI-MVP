@@ -553,6 +553,7 @@ class NavigationBotHandlers(BotHandlers):
             await loading.edit_text(exc.public_message)
             return
         context.user_data["practice_session"] = {
+            "id": uuid4().hex[:8],
             "topic": setup["topic"],
             "difficulty": setup["difficulty"],
             "questions": questions,

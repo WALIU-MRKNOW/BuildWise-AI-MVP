@@ -208,20 +208,20 @@ def practice_count_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def quiz_answer_keyboard() -> InlineKeyboardMarkup:
+def quiz_answer_keyboard(session_id: str, question_index: int) -> InlineKeyboardMarkup:
     labels = ("A", "B", "C", "D")
     return InlineKeyboardMarkup(
         [[
-            InlineKeyboardButton(label, callback_data=f"practice:answer:{index}")
+            InlineKeyboardButton(label, callback_data=f"practice:answer:{session_id}:{question_index}:{index}")
             for index, label in enumerate(labels)
         ]]
     )
 
 
-def quiz_next_keyboard(*, finished: bool = False) -> InlineKeyboardMarkup:
+def quiz_next_keyboard(session_id: str, question_index: int, *, finished: bool = False) -> InlineKeyboardMarkup:
     label = "See Results" if finished else "Next Question"
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton(label, callback_data="practice:next")]]
+        [[InlineKeyboardButton(label, callback_data=f"practice:next:{session_id}:{question_index}")]]
     )
 
 
