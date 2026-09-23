@@ -112,6 +112,16 @@ class Settings(BaseSettings):
     daily_ai_request_limit: int = Field(
         default=20, ge=1, le=1000, validation_alias="DAILY_AI_REQUEST_LIMIT"
     )
+    student_sketch_enabled: bool = Field(
+        default=False, validation_alias="STUDENT_SKETCH_ENABLED"
+    )
+    # An explicit Telegram-ID allowlist is mandatory even when the pilot is enabled.
+    student_sketch_allowed_ids_raw: str = Field(
+        default="", validation_alias="STUDENT_SKETCH_ALLOWED_IDS"
+    )
+    student_sketch_daily_limit: int = Field(
+        default=2, ge=1, le=5, validation_alias="STUDENT_SKETCH_DAILY_LIMIT"
+    )
     request_cooldown_seconds: float = Field(
         default=2.0, ge=0, le=60, validation_alias="REQUEST_COOLDOWN_SECONDS"
     )
@@ -176,6 +186,12 @@ class Settings(BaseSettings):
         return self._parse_id_list(
             self.buildwise_pro_allowed_telegram_ids_raw,
             "BUILDWISE_PRO_ALLOWED_TELEGRAM_IDS",
+        )
+
+    @property
+    def student_sketch_allowed_ids(self) -> frozenset[int]:
+        return self._parse_id_list(
+            self.student_sketch_allowed_ids_raw, "STUDENT_SKETCH_ALLOWED_IDS"
         )
 
     @property
