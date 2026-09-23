@@ -19,6 +19,7 @@
 ## Deploy
 
 - [ ] Deploy one Railway replica using `railway.toml`.
+- [ ] Confirm the intended `RUNTIME_MODE`. The current production service uses `webhook`; verify the public origin and required webhook/cron secrets without printing their values.
 - [ ] Confirm `/health` returns `status: ok`.
 - [ ] Confirm logs show startup but never secret values or message contents.
 - [ ] Send `/start` as a new Telegram user and set a timezone.
@@ -41,7 +42,7 @@
 - [ ] Review Supabase Storage growth and orphan uploads weekly during the MVP.
 - [ ] Check that reminder volume remains at one automatic reminder per enabled user/day.
 - [ ] Record user feedback on Study, Practice, Building, and Sketch usage separately.
-- [ ] Keep only one polling replica active.
+- [ ] Keep one bot/reminder owner active until webhook update and reminder processing are coordinated for multiple replicas. For a local polling run, never start a second poller with the same token.
 
 ## Rollback triggers
 

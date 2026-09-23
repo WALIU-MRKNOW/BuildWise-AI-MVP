@@ -1,8 +1,10 @@
 # ADR-001: BuildWise MVP Runtime and Persistence
 
-**Status:** Accepted  
+**Status:** Historical decision; polling transport superseded in Railway production
 **Date:** 2026-08-14  
 **Deciders:** BuildWise product owner
+
+**Current runtime note (23 September 2026):** `main.py` still defaults to polling for local/VM use, but the Railway production service runs `RUNTIME_MODE=webhook` with a protected Telegram endpoint. The original decision and trade-offs below are retained as the August 2026 design record. See the README and deployment checklist for current production setup.
 
 ## Context
 

@@ -20,7 +20,7 @@ There are no instructor-facing workflows and no payment system in this launch MV
 - Supabase PostgreSQL and private Storage
 - Railway, Docker, or any comparable Python host
 
-The Telegram bot uses long polling. FastAPI serves `/health`; a public Telegram webhook is not required.
+`main.py` defaults to Telegram long polling for local or VM runs. Production Railway currently sets `RUNTIME_MODE=webhook`: FastAPI serves `/health` and the protected `/telegram/webhook` endpoint. The webhook requires `TELEGRAM_WEBHOOK_SECRET` and `INTERNAL_CRON_SECRET`, with either `TELEGRAM_WEBHOOK_BASE_URL` or `RAILWAY_PUBLIC_DOMAIN` for the public origin.
 
 ## Project structure
 
@@ -33,6 +33,7 @@ buildwise-ai/
 │   ├── services/reminder_service.py   Timezone-aware notifications
 │   ├── api.py                         FastAPI health service
 │   ├── runtime.py                     Telegram + FastAPI process
+│   ├── webhook_runtime.py             Production Telegram webhook + FastAPI
 │   ├── config.py                      Validated environment settings
 │   ├── domain.py                      Shared types
 │   ├── keyboards.py                   Telegram inline menus
@@ -151,7 +152,7 @@ User timezone is stored as an IANA name such as `Africa/Lagos`. New profiles use
 
 Reminder preferences are durable in Supabase. A Railway process checks for due reminders every 60 seconds and sends no more than one automatic reminder per local day. “Remind Me Later” schedules a user-requested two-hour snooze. Students can turn reminders off at any time.
 
-Run only one BuildWise polling process. Multiple replicas using the same Telegram token can compete for updates and duplicate reminder work.
+Run only one polling process per Telegram token. Production currently uses a webhook; avoid overlapping bot deployments or reminder schedulers unless update and reminder processing are coordinated across replicas.
 
 ## Usage and abuse protection
 
@@ -174,9 +175,9 @@ These safeguards do not replace product-specific legal review, privacy review, a
 
 ## Deploy to Railway
 
-1. Put this folder in a private GitHub repository.
+1. Use the BuildWise GitHub repository; keep `.env` and all credentials out of Git.
 2. In Railway, create a project and deploy that repository.
-3. Add every required `.env.example` value under the Railway service’s **Variables** tab. Railway supplies `PORT` automatically.
+3. Add required values under the Railway service’s **Variables** tab. For the current production webhook runtime, set `RUNTIME_MODE=webhook`, the two webhook/cron secrets, and a public webhook base URL or Railway public domain. Railway supplies `PORT` automatically.
 4. Keep the start command from `railway.toml`: `python main.py`.
 5. Deploy and wait for `/health` to pass.
 6. Open Telegram and test `/start`, a text question, an image, `/practice`, and `/history`.
