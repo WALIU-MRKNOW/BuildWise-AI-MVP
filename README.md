@@ -22,6 +22,8 @@ There are no instructor-facing workflows and no payment system in this launch MV
 
 `main.py` defaults to Telegram long polling for local or VM runs. Production Railway currently sets `RUNTIME_MODE=webhook`: FastAPI serves `/health` and the protected `/telegram/webhook` endpoint. The webhook requires `TELEGRAM_WEBHOOK_SECRET` and `INTERNAL_CRON_SECRET`, with either `TELEGRAM_WEBHOOK_BASE_URL` or `RAILWAY_PUBLIC_DOMAIN` for the public origin.
 
+Student Premium is separate from BuildWise Pro. The planned price point is **₦3,000**; paid access remains disabled until entitlement, billing-period, payment and refund behavior are implemented and tested. See [Student upgrade plan](docs/STUDENT_UPGRADE_PLAN.md).
+
 ## Project structure
 
 ```text
