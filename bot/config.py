@@ -112,6 +112,18 @@ class Settings(BaseSettings):
     daily_ai_request_limit: int = Field(
         default=20, ge=1, le=1000, validation_alias="DAILY_AI_REQUEST_LIMIT"
     )
+    # Student Premium is a separate future entitlement from BuildWise Pro.
+    # Pricing can be communicated before payments are enabled, but entitlement
+    # checks must stay off until the payment/metering flow is implemented.
+    student_premium_enabled: bool = Field(
+        default=False, validation_alias="STUDENT_PREMIUM_ENABLED"
+    )
+    student_premium_price_ngn: int = Field(
+        default=3000,
+        ge=100,
+        le=100000,
+        validation_alias="STUDENT_PREMIUM_PRICE_NGN",
+    )
     request_cooldown_seconds: float = Field(
         default=2.0, ge=0, le=60, validation_alias="REQUEST_COOLDOWN_SECONDS"
     )
