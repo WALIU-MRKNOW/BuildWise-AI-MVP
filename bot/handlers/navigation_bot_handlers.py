@@ -564,6 +564,7 @@ class NavigationBotHandlers(BotHandlers):
         }
         context.user_data.pop("practice_setup", None)
         context.user_data.pop("practice_generating", None)
+        await self._persist_practice_state(profile.id, context.user_data["practice_session"])
         await loading.edit_text("Practice ready.")
         await self._send_practice_question(update, context)
 

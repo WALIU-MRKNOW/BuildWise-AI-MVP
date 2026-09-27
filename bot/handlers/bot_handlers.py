@@ -301,17 +301,21 @@ class BotHandlers:
         await update.effective_message.reply_text(prompts[mode])
 
     async def practice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self._profile(update)
+        profile = await self._profile(update)
         topic = " ".join(context.args).strip()
-        await self._start_practice(update, context, topic or None)
+        await self._start_practice(update, context, topic or None, profile=profile)
 
     async def _start_practice(
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
         topic: str | None = None,
+        *,
+        profile: UserProfile | None = None,
     ) -> None:
         context.user_data.pop("practice_session", None)
+        if profile is not None:
+            await self._clear_practice_state(profile.id)
         if not topic:
             context.user_data["awaiting_practice_topic"] = True
             await update.effective_message.reply_text(
@@ -479,7 +483,7 @@ class BotHandlers:
             await self._set_custom_reminder(update, profile, raw_text)
             return
         if context.user_data.pop("awaiting_practice_topic", False):
-            await self._start_practice(update, context, raw_text)
+            await self._start_practice(update, context, raw_text, profile=profile)
             return
         if context.user_data.pop("awaiting_check_answer", False):
             await self._check_student_answer(update, context, profile, raw_text)
@@ -777,7 +781,7 @@ class BotHandlers:
         elif action == "building":
             await self._activate_mode(update, context, Mode.BUILDING)
         elif action == "practice":
-            await self._start_practice(update, context)
+            await self._start_practice(update, context, profile=profile)
         elif action == "history":
             await self._show_history(update, profile)
         elif action == "settings":
@@ -1044,9 +1048,15 @@ class BotHandlers:
             await self._generate_practice(update, context, profile, int(parts[2]))
             return
         if len(parts) == 5 and parts[1] == "answer":
-            await self._answer_practice_question(update, context, int(parts[4]), parts[2], int(parts[3]))
+            if not context.user_data.get("practice_session"):
+                await self._restore_practice_state(context, profile)
+            await self._answer_practice_question(
+                update, context, profile, int(parts[4]), parts[2], int(parts[3])
+            )
             return
         if len(parts) == 4 and parts[1] == "next":
+            if not context.user_data.get("practice_session"):
+                await self._restore_practice_state(context, profile)
             await self._next_practice(update, context, profile, parts[2], int(parts[3]))
 
     async def _generate_practice(
@@ -1095,6 +1105,7 @@ class BotHandlers:
         }
         context.user_data.pop("practice_setup", None)
         context.user_data.pop("practice_generating", None)
+        await self._persist_practice_state(profile.id, context.user_data["practice_session"])
         await loading.edit_text("Practice ready.")
         await self._send_practice_question(update, context)
 
@@ -1118,8 +1129,13 @@ class BotHandlers:
         )
 
     async def _answer_practice_question(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE, selected: int,
-        session_id: str, question_index: int,
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        profile: UserProfile,
+        selected: int,
+        session_id: str,
+        question_index: int,
     ) -> None:
         session = context.user_data.get("practice_session")
         if not session:
@@ -1150,6 +1166,7 @@ class BotHandlers:
                 f"{chr(65 + question.correct_index)}. {question.options[question.correct_index]}"
             )
         finished = int(session["index"]) == len(questions) - 1
+        await self._persist_practice_state(profile.id, session)
         await update.effective_message.reply_text(
             f"{result}\n\n{question.explanation}",
             reply_markup=quiz_next_keyboard(session_id, question_index, finished=finished),
@@ -1173,6 +1190,7 @@ class BotHandlers:
         if int(session["index"]) < len(questions) - 1:
             session["index"] += 1
             session["answered"] = False
+            await self._persist_practice_state(profile.id, session)
             await self._send_practice_question(update, context)
             return
 
@@ -1214,6 +1232,42 @@ class BotHandlers:
         )
         await self._celebrate(update, completion)
         context.user_data.pop("practice_session", None)
+        await self._clear_practice_state(profile.id)
+
+    async def _persist_practice_state(
+        self, user_id: str, session: dict[str, Any]
+    ) -> None:
+        saver = getattr(self._database, "save_practice_session", None)
+        if saver is None:
+            return
+        try:
+            await saver(user_id, session)
+        except SupabaseError:
+            logger.exception("Could not persist active Practice session user_id=%s", user_id)
+
+    async def _restore_practice_state(
+        self, context: ContextTypes.DEFAULT_TYPE, profile: UserProfile
+    ) -> dict[str, Any] | None:
+        loader = getattr(self._database, "load_practice_session", None)
+        if loader is None:
+            return None
+        try:
+            session = await loader(profile.id)
+        except SupabaseError:
+            logger.exception("Could not restore active Practice session user_id=%s", profile.id)
+            return None
+        if session:
+            context.user_data["practice_session"] = session
+        return session
+
+    async def _clear_practice_state(self, user_id: str) -> None:
+        clearer = getattr(self._database, "clear_practice_session", None)
+        if clearer is None:
+            return
+        try:
+            await clearer(user_id)
+        except SupabaseError:
+            logger.exception("Could not clear active Practice session user_id=%s", user_id)
 
     async def _last_context(
         self, context: ContextTypes.DEFAULT_TYPE, profile: UserProfile
