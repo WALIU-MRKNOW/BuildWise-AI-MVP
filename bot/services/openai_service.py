@@ -58,9 +58,10 @@ Return only strict JSON. Do not add commentary before or after the JSON.
 
 
 class AIServiceError(RuntimeError):
-    def __init__(self, public_message: str) -> None:
+    def __init__(self, public_message: str, *, code: str = "ai_error") -> None:
         super().__init__(public_message)
         self.public_message = public_message
+        self.code = code
 
 
 class OpenAIService:
@@ -326,28 +327,57 @@ meaning of the topic. Do not include Markdown fences.
         return balanced
 
     @staticmethod
+    def _provider_error_code(exc: OpenAIError) -> str:
+        """Extract a safe provider error code without logging response bodies."""
+        direct = str(getattr(exc, "code", "") or "").strip()
+        if direct:
+            return direct
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            nested = body.get("error")
+            if isinstance(nested, dict):
+                return str(nested.get("code") or nested.get("type") or "").strip()
+            return str(body.get("code") or body.get("type") or "").strip()
+        return ""
+
+    @staticmethod
     def _translate_error(exc: OpenAIError) -> AIServiceError:
         if isinstance(exc, AuthenticationError):
             logger.error("OpenAI authentication failed")
             return AIServiceError(
-                "BuildWise AI is not configured correctly. The owner should check the OpenAI key."
+                "BuildWise AI is not configured correctly. The owner should check the OpenAI key.",
+                code="authentication",
             )
         if isinstance(exc, RateLimitError):
+            provider_code = OpenAIService._provider_error_code(exc)
+            logger.warning("OpenAI rate limit code=%s", provider_code or "unknown")
+            if provider_code in {"insufficient_quota", "billing_hard_limit_reached"}:
+                return AIServiceError(
+                    "BuildWise AI is temporarily unavailable while its AI service allowance is restored. Please try again later.",
+                    code="billing_quota",
+                )
             return AIServiceError(
-                "BuildWise is busy or its AI allowance was reached. Please try again shortly."
+                "BuildWise is receiving a lot of requests right now. Please try again shortly.",
+                code="rate_limit",
             )
         if isinstance(exc, APITimeoutError):
             return AIServiceError(
-                "That took too long. Try a smaller PDF, clearer image, or shorter request."
+                "That took too long. Try a smaller PDF, clearer image, or shorter request.",
+                code="timeout",
             )
         if isinstance(exc, APIConnectionError):
             return AIServiceError(
-                "I could not reach the AI service. Please try again in a moment."
+                "I could not reach the AI service. Please try again in a moment.",
+                code="connection",
             )
         if isinstance(exc, BadRequestError):
             logger.error("OpenAI bad request: %s", str(exc))
             return AIServiceError(
-                "I could not process that input. Try a clearer image, supported PDF, or shorter text."
+                "I could not process that input. Try a clearer image, supported PDF, or shorter text.",
+                code="bad_request",
             )
         logger.error("Unexpected OpenAI error: %s", exc.__class__.__name__)
-        return AIServiceError("The AI service returned an error. Please try again shortly.")
+        return AIServiceError(
+            "The AI service returned an error. Please try again shortly.",
+            code="provider_error",
+        )
