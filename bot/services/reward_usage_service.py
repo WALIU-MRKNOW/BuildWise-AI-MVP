@@ -12,11 +12,13 @@ import logging
 import os
 from typing import Any
 
-from bot.domain import UsageStatus, UserProfile
+from bot.domain import QuizQuestion, UsageStatus, UserProfile
 from bot.services.supabase_service import SupabaseError, SupabaseService
 
 _STUDENT_PROFILE_ITEM_TYPE = "student_profile"
 _STUDENT_PROFILE_TITLE = "BuildWise student profile"
+_PRACTICE_SESSION_ITEM_TYPE = "practice_session"
+_PRACTICE_SESSION_TITLE = "BuildWise active practice"
 _HISTORY_PAGE_SIZE = 500
 logger = logging.getLogger(__name__)
 
@@ -141,13 +143,140 @@ class StudentAccessSupabaseService(SupabaseService):
         except SupabaseError:
             logger.warning("Could not prune an older student identity row user_id=%s", user_id)
 
+    async def save_practice_session(self, user_id: str, session: dict[str, Any]) -> None:
+        questions = session.get("questions")
+        if not isinstance(questions, list) or not questions:
+            raise SupabaseError("Practice session has no questions")
+        serialized_questions = []
+        for question in questions:
+            if not isinstance(question, QuizQuestion):
+                raise SupabaseError("Practice session contains an invalid question")
+            serialized_questions.append(
+                {
+                    "question": question.question,
+                    "options": list(question.options),
+                    "correct_index": question.correct_index,
+                    "explanation": question.explanation,
+                }
+            )
+        payload = json.dumps(
+            {
+                "id": str(session.get("id") or ""),
+                "topic": str(session.get("topic") or ""),
+                "difficulty": str(session.get("difficulty") or ""),
+                "questions": serialized_questions,
+                "index": int(session.get("index", 0)),
+                "correct": int(session.get("correct", 0)),
+                "answered": bool(session.get("answered", False)),
+                "mistakes": list(session.get("mistakes") or []),
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        rows = await self._request(
+            "POST",
+            "/rest/v1/saved_items",
+            json={
+                "user_id": user_id,
+                "item_type": _PRACTICE_SESSION_ITEM_TYPE,
+                "title": _PRACTICE_SESSION_TITLE,
+                "content": payload,
+                "file_reference": None,
+            },
+            headers={"Prefer": "return=representation"},
+        )
+        if not rows or not rows[0].get("id"):
+            raise SupabaseError("Practice session could not be saved")
+        new_id = str(rows[0]["id"])
+        try:
+            await self._request(
+                "DELETE",
+                "/rest/v1/saved_items",
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "item_type": f"eq.{_PRACTICE_SESSION_ITEM_TYPE}",
+                    "id": f"neq.{new_id}",
+                },
+            )
+        except SupabaseError:
+            logger.warning("Could not prune an older practice session user_id=%s", user_id)
+
+    async def load_practice_session(self, user_id: str) -> dict[str, Any] | None:
+        rows = await self._request(
+            "GET",
+            "/rest/v1/saved_items",
+            params={
+                "user_id": f"eq.{user_id}",
+                "item_type": f"eq.{_PRACTICE_SESSION_ITEM_TYPE}",
+                "select": "content",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return None
+        try:
+            payload = json.loads(str(rows[0].get("content") or "{}"))
+            raw_questions = payload["questions"]
+            questions = [
+                QuizQuestion(
+                    question=str(item["question"]).strip(),
+                    options=(
+                        str(item["options"][0]).strip(),
+                        str(item["options"][1]).strip(),
+                        str(item["options"][2]).strip(),
+                        str(item["options"][3]).strip(),
+                    ),
+                    correct_index=int(item["correct_index"]),
+                    explanation=str(item["explanation"]).strip(),
+                )
+                for item in raw_questions
+            ]
+            session = {
+                "id": str(payload["id"]),
+                "topic": str(payload["topic"]),
+                "difficulty": str(payload["difficulty"]),
+                "questions": questions,
+                "index": int(payload["index"]),
+                "correct": int(payload["correct"]),
+                "answered": bool(payload["answered"]),
+                "mistakes": list(payload.get("mistakes") or []),
+            }
+        except (KeyError, TypeError, ValueError, IndexError, json.JSONDecodeError):
+            logger.warning("Ignoring malformed persisted practice session user_id=%s", user_id)
+            return None
+        if (
+            not session["id"]
+            or not session["topic"]
+            or not questions
+            or session["index"] < 0
+            or session["index"] >= len(questions)
+            or session["correct"] < 0
+            or session["correct"] > len(questions)
+            or any(question.correct_index not in range(4) for question in questions)
+        ):
+            return None
+        return session
+
+    async def clear_practice_session(self, user_id: str) -> None:
+        await self._request(
+            "DELETE",
+            "/rest/v1/saved_items",
+            params={
+                "user_id": f"eq.{user_id}",
+                "item_type": f"eq.{_PRACTICE_SESSION_ITEM_TYPE}",
+            },
+        )
+
     async def recent_saved_items(self, user_id: str, limit: int = 5) -> list[dict[str, Any]]:
         return await self._request(
             "GET",
             "/rest/v1/saved_items",
             params={
                 "user_id": f"eq.{user_id}",
-                "item_type": f"neq.{_STUDENT_PROFILE_ITEM_TYPE}",
+                "item_type": (
+                    f"not.in.({_STUDENT_PROFILE_ITEM_TYPE},{_PRACTICE_SESSION_ITEM_TYPE})"
+                ),
                 "select": "id,item_type,title,content,created_at",
                 "order": "created_at.desc",
                 "limit": str(limit),
