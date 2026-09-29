@@ -16,7 +16,8 @@ analysis flows.
 
 - Planned Student Premium price point: **₦3,000**.
 - STUDENT_PREMIUM_ENABLED remains false until entitlement/payment infrastructure is ready.
-- Billing period, payment provider, refund rules and exact paid limits must be finalized
+- Payment provider: **Paystack**, starting in test mode only.
+- Billing period, refund rules and exact paid limits must be finalized
   before a public paid launch.
 
 ## Upgrade order
@@ -89,6 +90,9 @@ analysis flows.
 ## Current implementation status
 
 - Student Premium price configuration exists at ₦3,000 but paid access is disabled.
+- The [Paystack sandbox foundation](PAYSTACK_TEST_FOUNDATION.md) adds internal
+  checkout/verification and signature helpers, disabled by default. Public payment
+  routes, durable payment records and entitlement activation are a later stage.
 - BuildWise Pro stays disabled unless separately enabled and allowlisted.
 - Quick Practice generation/repeated-tap reliability fixes are already merged.
 - Current production runtime remains Telegram webhook on Railway.
