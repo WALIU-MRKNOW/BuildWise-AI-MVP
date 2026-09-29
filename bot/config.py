@@ -124,6 +124,13 @@ class Settings(BaseSettings):
         le=100000,
         validation_alias="STUDENT_PREMIUM_PRICE_NGN",
     )
+    # Internal sandbox adapter only; neither flag exposes a student checkout.
+    paystack_test_enabled: bool = Field(
+        default=False, validation_alias="PAYSTACK_TEST_ENABLED"
+    )
+    paystack_secret_key: SecretStr | None = Field(
+        default=None, validation_alias="PAYSTACK_SECRET_KEY"
+    )
     request_cooldown_seconds: float = Field(
         default=2.0, ge=0, le=60, validation_alias="REQUEST_COOLDOWN_SECONDS"
     )
