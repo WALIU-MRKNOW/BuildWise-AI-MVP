@@ -1,6 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
+from bot.services.ai_metering import UsageMeter
 from bot.services.openai_service import OpenAIService
 
 
@@ -25,6 +26,7 @@ class _FakeResponses:
 class QuizBuiltEnvironmentContextTests(unittest.IsolatedAsyncioTestCase):
     async def test_ambiguous_topic_is_scoped_to_built_environment(self) -> None:
         service = OpenAIService.__new__(OpenAIService)
+        service._meter = UsageMeter(SimpleNamespace(ai_budget_enabled=False))
         responses = _FakeResponses()
         service._client = SimpleNamespace(responses=responses)
         service._settings = SimpleNamespace(

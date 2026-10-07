@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from bot.services.openai_service import AIServiceError, OpenAIService
+from bot.services.ai_metering import UsageMeter
 
 
 class QuizParsingTests(unittest.TestCase):
@@ -90,6 +91,7 @@ class _RetryResponses:
 class QuizRetryTests(unittest.IsolatedAsyncioTestCase):
     async def test_generate_quiz_retries_invalid_model_output_once(self) -> None:
         service = OpenAIService.__new__(OpenAIService)
+        service._meter = UsageMeter(SimpleNamespace(ai_budget_enabled=False))
         responses = _RetryResponses()
         service._client = SimpleNamespace(responses=responses)
         service._settings = SimpleNamespace(
@@ -107,6 +109,7 @@ class QuizRetryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_generate_quiz_rejects_two_malformed_responses(self) -> None:
         service = OpenAIService.__new__(OpenAIService)
+        service._meter = UsageMeter(SimpleNamespace(ai_budget_enabled=False))
         responses = _RetryResponses()
         async def always_invalid(**kwargs):
             responses.calls.append(kwargs)

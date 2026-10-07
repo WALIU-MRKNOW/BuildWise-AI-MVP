@@ -9,6 +9,8 @@ from telegram.ext import Application
 from bot.config import Settings
 from bot.handlers.sketch_report_handlers import SketchReportHandlers
 from bot.handlers.repository_audit_handlers import RepositoryAuditHandlers
+from bot.handlers.student_tools_handlers import StudentToolsHandlers
+from bot.services.student_tools_service import StudentToolsDatabase
 from bot.handlers.bot_handlers import BotHandlers
 from bot.handlers.navigation_handlers import NavigationHandlers, NavigationSupportHandlers
 from bot.handlers.student_learning_handlers import StudentLearningHandlers
@@ -30,9 +32,9 @@ class BuildWiseComponents:
 
 
 def build_components(settings: Settings) -> BuildWiseComponents:
-    database = StudentAccessSupabaseService(settings)
+    database = StudentToolsDatabase(settings)
     reminders = ReminderService(database)
-    handlers = RepositoryAuditHandlers(
+    handlers = StudentToolsHandlers(
         settings,
         OpenAIService(settings),
         RequestRouter(),

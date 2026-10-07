@@ -116,7 +116,7 @@ When no template is supplied, template_sections must be an empty array.
             bool(request.standard_reference),
         )
         try:
-            response = await self._client.responses.create(
+            response = await self._create_response(
                 model=self._settings.openai_model,
                 instructions=(
                     "You are BuildWise Pro's professional report analysis and drafting assistant. "
