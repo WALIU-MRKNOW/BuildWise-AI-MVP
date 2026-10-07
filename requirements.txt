@@ -7,5 +7,5 @@ python-docx==1.2.0
 python-multipart==0.0.31
 python-telegram-bot[job-queue]==22.8
 reportlab==4.4.4
-tzdata==2026.3
+tzdata==2026.4
 uvicorn[standard]==0.52.3
