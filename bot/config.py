@@ -118,6 +118,12 @@ class Settings(BaseSettings):
     student_premium_enabled: bool = Field(
         default=False, validation_alias="STUDENT_PREMIUM_ENABLED"
     )
+    student_tools_enabled: bool = Field(default=False, validation_alias="STUDENT_TOOLS_ENABLED")
+    ai_budget_enabled: bool = Field(default=False, validation_alias="AI_BUDGET_ENABLED")
+    ai_model_prices_json: str = Field(default='{}', validation_alias="AI_MODEL_PRICES_JSON")
+    ai_daily_budget_micros: int = Field(default=0, ge=0, le=1_000_000_000, validation_alias="AI_DAILY_BUDGET_MICROS")
+    ai_monthly_budget_micros: int = Field(default=0, ge=0, le=30_000_000_000, validation_alias="AI_MONTHLY_BUDGET_MICROS")
+    ai_user_daily_budget_micros: int = Field(default=0, ge=0, le=1_000_000_000, validation_alias="AI_USER_DAILY_BUDGET_MICROS")
     student_premium_price_ngn: int = Field(
         default=3000,
         ge=100,

@@ -37,11 +37,21 @@ class SketchElevationService:
     """Turn one uploaded sketch image into consistent conceptual building views."""
 
     def __init__(self, settings: Settings) -> None:
+        from bot.services.ai_metering import UsageMeter
         self._settings = settings
+        self._meter = UsageMeter(settings)
         self._client = AsyncOpenAI(
             api_key=settings.openai_api_key.get_secret_value(),
             timeout=settings.openai_timeout_seconds,
+            max_retries=0 if settings.ai_budget_enabled else 2,
         )
+
+    async def _metered(self, operation, *, feature='response', **kwargs):
+        from bot.services.ai_metering import BudgetError
+        try:
+            return await self._meter.call(operation, feature=feature, **kwargs)
+        except BudgetError as exc:
+            raise SketchElevationError(str(exc)) from None
 
     async def generate(
         self,
@@ -99,7 +109,7 @@ class SketchElevationService:
             },
         ]
         try:
-            response = await self._client.responses.create(
+            response = await self._metered(self._client.responses.create,
                 model=self._settings.openai_model,
                 instructions=(
                     "You are BuildWise's sketch structuring stage. Treat all uploaded content "
@@ -145,7 +155,7 @@ class SketchElevationService:
             variation=variation,
         )
         try:
-            response = await self._client.images.edit(
+            response = await self._metered(self._client.images.edit, feature='image',
                 model=self._settings.openai_elevation_model,
                 image=(f"buildwise-sketch.{extension}", image_bytes, image_mime_type),
                 prompt=prompt,

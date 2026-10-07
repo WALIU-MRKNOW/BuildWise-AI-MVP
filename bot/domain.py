@@ -35,6 +35,7 @@ class RequestPayload:
     pdf_bytes: bytes | None = None
     filename: str | None = None
     file_reference: str | None = None
+    study_task: str | None = None
 
     @property
     def has_image(self) -> bool:

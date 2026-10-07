@@ -545,7 +545,8 @@ class NavigationBotHandlers(BotHandlers):
         loading = await update.effective_message.reply_text("🧠 Building your practice...")
         try:
             questions = await self._ai.generate_quiz(
-                topic=setup["topic"], difficulty=setup["difficulty"], count=count
+                topic=setup["topic"], difficulty=setup["difficulty"], count=count,
+                **({'focus': setup['focus']} if setup.get('focus') else {}),
             )
         except AIServiceError as exc:
             await self._database.refund_usage(profile)
