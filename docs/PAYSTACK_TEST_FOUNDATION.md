@@ -1,5 +1,9 @@
 # Student Premium: Paystack sandbox foundation
 
+Historical record of the initial adapter stage. The current implementation is
+documented in [Monthly Student Premium sandbox](PAYSTACK_SANDBOX_LEDGER.md).
+The owner has since confirmed the ₦3,000 monthly period; real paid access stays off.
+
 Student Premium is planned at **₦3,000** and uses Paystack. Its duration, benefits,
 paid limits and refund policy remain undecided. It is separate from BuildWise Pro.
 

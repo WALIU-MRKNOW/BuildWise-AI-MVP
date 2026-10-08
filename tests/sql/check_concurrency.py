@@ -32,3 +32,16 @@ if __name__ == '__main__':
     assert sql(f"select count(*) from quiz_results where user_id='{user}'") == '1'
     assert sql(f"select count(*) from study_activity where user_id='{user}'") == '1'
     print('Concurrent spend reservations and quiz completion passed')
+    reference = 'bw-test-' + uuid4().hex
+    digest = uuid4().hex + uuid4().hex
+    sql(f"insert into paystack_test_intents(reference,user_id,request_key,amount_kobo) values('{reference}','{user}','ci',300000)")
+    sql(f"insert into paystack_test_events(digest,reference,event_type) values('{digest}','{reference}','charge.success')")
+
+    def fulfill(_):
+        return sql(f"select apply_test_payment('{reference}','{digest}',900001,'paid')")
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        results = list(pool.map(fulfill, range(10)))
+    assert results == ['paid'] * 10, results
+    assert sql(f"select count(*) from paystack_test_entitlements where reference='{reference}'") == '1'
+    print('Concurrent payment fulfillment passed')

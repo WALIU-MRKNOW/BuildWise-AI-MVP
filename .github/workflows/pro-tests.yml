@@ -53,7 +53,9 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f migrations/001_buildwise_mvp.sql
           psql -v ON_ERROR_STOP=1 -f migrations/010_student_tools.sql
           psql -v ON_ERROR_STOP=1 -f migrations/011_ai_spend_budget.sql
+          psql -v ON_ERROR_STOP=1 -f migrations/012_paystack_sandbox_ledger.sql
       - name: Verify transactions, permissions and concurrency
         run: |
           psql -v ON_ERROR_STOP=1 -f tests/sql/student_tools_smoke.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/payment_smoke.sql
           python tests/sql/check_concurrency.py

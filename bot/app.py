@@ -10,6 +10,7 @@ from bot.config import Settings
 from bot.handlers.sketch_report_handlers import SketchReportHandlers
 from bot.handlers.repository_audit_handlers import RepositoryAuditHandlers
 from bot.handlers.student_tools_handlers import StudentToolsHandlers
+from bot.handlers.payment_test_handlers import PaymentTestHandlers
 from bot.services.student_tools_service import StudentToolsDatabase
 from bot.handlers.bot_handlers import BotHandlers
 from bot.handlers.navigation_handlers import NavigationHandlers, NavigationSupportHandlers
@@ -57,5 +58,6 @@ def build_components(settings: Settings) -> BuildWiseComponents:
     navigation_handlers.register(telegram)
     student_learning_handlers.register(telegram)
     SketchReportHandlers().register(telegram)
+    PaymentTestHandlers(settings, database, handlers).register(telegram)
     handlers.register(telegram)
     return BuildWiseComponents(telegram, handlers, database, reminders)

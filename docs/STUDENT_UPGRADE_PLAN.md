@@ -14,10 +14,10 @@ analysis flows.
 
 ## Student Premium decision
 
-- Planned Student Premium price point: **₦3,000**.
+- Student Premium price point: **₦3,000 monthly**, confirmed by the owner.
 - STUDENT_PREMIUM_ENABLED remains false until entitlement/payment infrastructure is ready.
 - Payment provider: **Paystack**, starting in test mode only.
-- Billing period, refund rules and exact paid limits must be finalized
+- Refund rules, benefits and exact paid limits must be finalized
   before a public paid launch.
 
 ## Upgrade order
@@ -90,9 +90,19 @@ analysis flows.
 ## Current implementation status
 
 - Student Premium price configuration exists at ₦3,000 but paid access is disabled.
-- The [Paystack sandbox foundation](PAYSTACK_TEST_FOUNDATION.md) adds internal
-  checkout/verification and signature helpers, disabled by default. Public payment
-  routes, durable payment records and entitlement activation are a later stage.
+- The [sandbox ledger](PAYSTACK_SANDBOX_LEDGER.md) extends the Paystack adapter with
+  private durable intents, signed webhooks, independent verification, replay-safe
+  monthly test entitlements and conservative refund/dispute holds. Test commands
+  require a separate tester allowlist. Everything remains disabled by default.
+- [Student tools and budgets](STUDENT_TOOLS_AND_BUDGETS.md) add persistent weak-topic
+  review/retry, optional programme/level, original topic taxonomy, bounded PDF
+  tasks, factual-note drafting, feedback, aggregate analytics and atomic AI spend
+  reservations. Separate feature flags remain off pending controlled acceptance.
+- Course-specific institution adapters still require verified course information.
+  Model factuality, visual fidelity and cost settings require funded AI acceptance.
+- Real Paystack checkout/webhook/refund acceptance is still pending secure test
+  configuration and a running endpoint; mocked tests are not provider acceptance.
 - BuildWise Pro stays disabled unless separately enabled and allowlisted.
 - Quick Practice generation/repeated-tap reliability fixes are already merged.
-- Current production runtime remains Telegram webhook on Railway.
+- The deployment target remains Telegram webhook on Railway. As of 2026-10-08,
+  Railway reports the bot offline; the expired hosting trial blocks deployment.

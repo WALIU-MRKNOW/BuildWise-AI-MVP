@@ -1,4 +1,4 @@
-"""Internal test-only Paystack boundary. No routes, storage or entitlements.
+"""Internal test-only Paystack API boundary.
 
 An eventual payment coordinator must persist each intent before initialization,
 load it by reference for verification, and atomically deduplicate fulfillment.
@@ -169,12 +169,8 @@ class PaystackTestService:
             raise PaystackError("Test payment verification did not match the expected payment")
         return VerifiedTestPayment(intent.reference, transaction_id, intent.amount_kobo)
 
-    def webhook_reference(self, raw_body: bytes, signature: str) -> str | None:
-        """Authenticate raw bytes, then extract a test charge reference for lookup.
-
-        Not a webhook consumer: does not acknowledge, persist, or fulfill events.
-        A signed event can be replayed; the future ledger must handle duplicates.
-        """
+    def webhook_event(self, raw_body: bytes, signature: str) -> dict[str, Any]:
+        """Authenticate exact bytes before parsing. This does not fulfill payment."""
         key = self._test_key()
         if len(raw_body) > _MAX_WEBHOOK_BYTES:
             raise PaystackError("Paystack event is too large")
@@ -189,6 +185,10 @@ class PaystackTestService:
             raise PaystackError("Invalid Paystack event") from None
         if not isinstance(event, dict):
             raise PaystackError("Invalid Paystack event")
+        return event
+
+    def webhook_reference(self, raw_body: bytes, signature: str) -> str | None:
+        event = self.webhook_event(raw_body, signature)
         if event.get("event") != "charge.success":
             return None
         data = event.get("data")

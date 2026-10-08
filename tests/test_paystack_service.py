@@ -74,8 +74,8 @@ class PaystackConfigTests(unittest.TestCase):
             paths = set(api.openapi()["paths"])
             self.assertFalse(any("paystack" in path or "premium" in path for path in paths))
 
-    def test_production_webhook_runtime_has_no_payment_routes(self):
-        config = sandbox(
+    def test_production_webhook_runtime_has_no_payment_routes_by_default(self):
+        config = settings(
             RUNTIME_MODE="webhook",
             TELEGRAM_WEBHOOK_SECRET="telegram-webhook-secret-123456",
             TELEGRAM_WEBHOOK_BASE_URL="https://buildwise.example.test",
@@ -84,6 +84,17 @@ class PaystackConfigTests(unittest.TestCase):
         paths = set(create_webhook_api(config).openapi()["paths"])
         self.assertIn("/telegram/webhook", paths)
         self.assertFalse(any("paystack" in path or "premium" in path for path in paths))
+
+    def test_explicit_sandbox_mounts_only_test_webhook(self):
+        config = sandbox(
+            RUNTIME_MODE="webhook",
+            TELEGRAM_WEBHOOK_SECRET="telegram-webhook-secret-123456",
+            TELEGRAM_WEBHOOK_BASE_URL="https://buildwise.example.test",
+            INTERNAL_CRON_SECRET="internal-cron-secret-123456789",
+        )
+        paths = set(create_webhook_api(config).openapi()["paths"])
+        self.assertEqual({p for p in paths if 'paystack' in p or 'premium' in p},
+                         {'/payments/paystack/test/webhook'})
 
 
 class PaystackRequestTests(unittest.IsolatedAsyncioTestCase):
