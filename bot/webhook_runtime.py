@@ -20,6 +20,7 @@ from bot.api import RuntimeHealth
 from bot.app import BuildWiseComponents, build_components
 from bot.config import Settings, load_settings
 from bot.pro.router import create_pro_router
+from bot.payments_api import create_test_payment_router
 from bot.runtime import configure_logging
 from bot.security import (
     MAX_TELEGRAM_WEBHOOK_BYTES,
@@ -168,6 +169,7 @@ def create_webhook_api(settings: Settings) -> FastAPI:
 
     log_admin_configuration(settings)
     api.include_router(create_admin_router(settings))
+    api.include_router(create_test_payment_router(settings, components.database))
     if settings.buildwise_pro_enabled and settings.buildwise_pro_web_enabled:
         api.include_router(create_pro_router(settings))
     return api

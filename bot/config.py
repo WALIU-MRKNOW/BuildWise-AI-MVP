@@ -134,6 +134,11 @@ class Settings(BaseSettings):
     paystack_test_enabled: bool = Field(
         default=False, validation_alias="PAYSTACK_TEST_ENABLED"
     )
+    paystack_test_allowed_telegram_ids_raw: str = Field(default='', validation_alias='PAYSTACK_TEST_ALLOWED_TELEGRAM_IDS')
+
+    @property
+    def paystack_test_allowed_telegram_ids(self) -> frozenset[int]:
+        return self._parse_id_list(self.paystack_test_allowed_telegram_ids_raw, 'PAYSTACK_TEST_ALLOWED_TELEGRAM_IDS')
     paystack_secret_key: SecretStr | None = Field(
         default=None, validation_alias="PAYSTACK_SECRET_KEY"
     )
